@@ -1,6 +1,10 @@
 # 대출 적합성 심사 3-Agent 파이프라인
 
 [![CI](https://github.com/Gwangdev/loan-suitability-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Gwangdev/loan-suitability-agent/actions/workflows/ci.yml)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://loan-suitability-agent.streamlit.app/)
+
+**라이브 데모:** https://loan-suitability-agent.streamlit.app/
+— OpenAI 키 없이도 사이드바의 "토큰 없이 데모 보기"로 실제 3-Agent 출력을 열람할 수 있다.
 
 자연어 상담 입력을 **정보 파싱 → 심사 판단 → 결과 안내**의 3단계 에이전트가 순차 처리하여,
 적합 대출 상품과 심사 판정을 산출하는 교육용 데모다. [CrewAI](https://docs.crewai.com/)
@@ -179,7 +183,7 @@ pytest
 - [x] **방문자 키 입력 + 비용 보호장치** — 세션 한정 키(누출 방지), 입력·횟수 상한, 쿨다운.
 - [x] **무토큰 데모** — 키 없는 방문자도 사전 녹화된 실제 결과를 열람한다(토큰 0).
 - [x] **Docker화** — 이식 가능한 컨테이너 이미지([Dockerfile](Dockerfile)). 로컬 빌드·기동 검증 완료.
-- [ ] **Streamlit Community Cloud 라이브 데모** — GitHub 연동으로 공개 URL 제공(예정).
+- [x] **Streamlit Community Cloud 라이브 데모** — 공개 URL 제공: https://loan-suitability-agent.streamlit.app/
 
 ---
 
