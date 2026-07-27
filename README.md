@@ -1,5 +1,7 @@
 # 대출 적합성 심사 3-Agent 파이프라인
 
+[![CI](https://github.com/Gwangdev/loan-suitability-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Gwangdev/loan-suitability-agent/actions/workflows/ci.yml)
+
 자연어로 상담 내용을 입력하면 **정보 파싱 → 심사 판단 → 결과 안내** 3단계 에이전트가
 협업해, 고객에게 맞는 대출 상품과 심사 판정을 안내하는 교육용 데모입니다.
 [CrewAI](https://docs.crewai.com/) 멀티에이전트 프레임워크와 Streamlit으로 구현했습니다.
@@ -105,6 +107,16 @@ python3 -c "from loan_agent import core; core.run_logic_selftest(core.TEST_CASES
 기본 3케이스(승인/상담필요/어려움)에 더해, 담보·직장조건 하드규칙을 검증하는
 엣지케이스 2종을 추가로 실행해 규칙 커버리지를 넓혔습니다.
 
+### 자동화 테스트 (pytest + CI)
+
+단위 테스트는 `tests/`에 있으며 **crewai/streamlit 등 무거운 의존성 없이** 동작합니다
+(결정적 로직·파서·다기준 랭킹·경계값). push·PR마다 [GitHub Actions](.github/workflows/ci.yml)가 자동 실행합니다.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
 ## 로드맵
 
 - [x] **DSR 심사 고도화** — 간이 DTI(`기존부채 ÷ 연소득`)를 금융위 실제 정의인
@@ -112,8 +124,11 @@ python3 -c "from loan_agent import core; core.run_logic_selftest(core.TEST_CASES
   원리금균등상환으로 월상환액을 산출해 합산하므로, 예전엔 못 잡던 '기존부채 0 + 거액 신청'도
   정확히 상환부담으로 반영됩니다(예: 월소득 300만·부채 0·희망 1억 → 예전 "여유" → 현재 "부족").
   판정 밴드 40%는 은행권 실제 DSR 규제 상한을 반영. *(남은 단순화: 대표 고정금리·기간 가정)*
-- [ ] **pytest + CI(GitHub Actions)** — 인라인 자체 테스트를 `pytest`로 분리하고 push마다 자동 검증.
-- [ ] **배포** — Streamlit Community Cloud / Docker로 접속 가능한 라이브 데모 제공.
+- [x] **다기준 상품 랭킹** — 최저금리 단일 → 금리·승인여유·중도상환수수료 3단 정렬 + 상위 3위 후보.
+  CSV에 금감원 「금융상품 한눈에」 공시 컬럼(상환방식·금리방식·중도상환수수료)을 추가.
+- [x] **pytest + CI(GitHub Actions)** — 인라인 자체 테스트를 `pytest`로 분리(29개), push마다 자동 검증.
+  단위 테스트는 무거운 LLM 의존성 없이 동작하도록 `core`를 crewai 없이 import 가능하게 개선.
+- [ ] **배포** — Streamlit Community Cloud / Docker로 접속 가능한 라이브 데모 제공(방문자 키 입력 + 비용 보호장치 포함).
 
 ---
 

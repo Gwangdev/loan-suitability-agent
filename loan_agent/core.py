@@ -338,7 +338,17 @@ def run_logic_selftest(cases: list = None) -> bool:
 # ---------------------------------------------------------------------------
 # 상품코드 조회 도구 (API 키 불필요 — crewai @tool 데코레이터만 사용)
 # ---------------------------------------------------------------------------
-from crewai.tools import tool  # noqa: E402  (지연 없이 바로 써도 되는 가벼운 임포트)
+# [디벨롭: pytest+CI] crewai 미설치 환경(경량 CI·단위테스트)에서도 core를 import할 수 있도록
+#   @tool 임포트를 선택적으로 만든다. "키 불필요 부분은 import만으로 동작해야 한다"는 설계 원칙을
+#   crewai 의존성에도 확장한 것 — 결정적 로직/파서/랭킹/자체테스트는 crewai 없이 검증 가능하다.
+#   실제 Agent 실행 경로(get_crew/build_*_agent)는 여전히 crewai를 요구한다.
+try:
+    from crewai.tools import tool  # noqa: E402
+except Exception:  # crewai 미설치 → no-op 데코레이터로 대체(도구 함수는 평범한 함수로 남음)
+    def tool(*_args, **_kwargs):
+        def _decorator(fn):
+            return fn
+        return _decorator
 
 
 @tool("lookup_loan_product")
