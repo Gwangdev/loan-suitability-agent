@@ -1,3 +1,4 @@
 # 개발/테스트 전용 의존성 (런타임 requirements.txt와 분리)
 -r requirements.txt
 pytest>=8.0
+httpx>=0.27   # FastAPI TestClient가 사용

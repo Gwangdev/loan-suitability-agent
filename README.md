@@ -59,14 +59,18 @@ loan-suitability-agent/
 ├── .env.example              # 키 설정 템플릿 (복사해서 .env 로)
 ├── loan_products.csv         # 22개 대출상품 데이터 (진실의 원천)
 ├── loan_agent/
-│   ├── core.py               # 심사 로직·파서·도구·Agent/Crew 정의 (노트북·앱 공용)
+│   ├── core.py               # 심사 로직·파서·도구·Agent/Crew 정의 (UI-무관, 단일 진실 원천)
+│   ├── api.py                # FastAPI 서비스 계층 (REST API)
 │   └── app.py                # Streamlit 프론트엔드
+├── tests/                    # pytest (결정적 로직·파서·랭킹·API)
+├── docs/                     # 기획서·기술노트·개선계획
 └── loan_agent_demo.ipynb     # 단계별 설명·실행 노트북
 ```
 
-`core.py` 하나에 모든 로직을 모으고 노트북과 앱이 함께 import하는 **단일 진실 원천** 구조입니다.
-API 키가 필요 없는 부분(상품 로딩·심사 로직·규칙기반 파서)은 import 즉시 사용 가능하고,
-키가 필요한 Agent/Crew는 호출 시점에 지연 생성합니다.
+`core.py` 하나에 모든 로직을 모으고 API·앱·노트북이 함께 import하는 **단일 진실 원천** 구조입니다
+(`core`는 Streamlit·FastAPI 어느 것도 import하지 않아, 프론트는 교체 가능한 얇은 층입니다 —
+[기술노트](docs/기술노트_FastAPI서비스화.md)). API 키가 필요 없는 부분(상품 로딩·심사 로직·규칙기반
+파서)은 import 즉시 사용 가능하고, 키가 필요한 Agent/Crew는 호출 시점에 지연 생성합니다.
 
 ## 빠른 시작
 
@@ -83,6 +87,24 @@ streamlit run loan_agent/app.py
 # 또는 노트북으로 단계별 확인
 jupyter lab loan_agent_demo.ipynb
 ```
+
+### REST API 서비스 (FastAPI)
+
+로직을 서비스로 노출해 다른 시스템이 호출할 수 있습니다. 자세한 배경은 [기술노트](docs/기술노트_FastAPI서비스화.md).
+
+```bash
+uvicorn loan_agent.api:app --reload      # http://127.0.0.1:8000/docs (OpenAPI 자동 문서)
+
+# 결정적 심사 호출 (키 불필요)
+curl -X POST http://127.0.0.1:8000/screen -H "Content-Type: application/json" \
+  -d '{"월소득":7000000,"부채":0,"신용등급":1,"희망금액":30000000,"직장유형":"정규직"}'
+```
+
+| 엔드포인트 | 설명 | LLM 키 |
+|---|---|---|
+| `GET /health`·`GET /products` | 상태 / 상품 목록 | 불필요 |
+| `POST /parse`·`POST /screen` | 자연어 파싱 / 결정적 심사 판정 | 불필요 |
+| `POST /advise` | 3-Agent 파이프라인 전체 | 필요 |
 
 ### API 키 없이 심사 로직만 검증
 
@@ -126,9 +148,11 @@ pytest
   판정 밴드 40%는 은행권 실제 DSR 규제 상한을 반영. *(남은 단순화: 대표 고정금리·기간 가정)*
 - [x] **다기준 상품 랭킹** — 최저금리 단일 → 금리·승인여유·중도상환수수료 3단 정렬 + 상위 3위 후보.
   CSV에 금감원 「금융상품 한눈에」 공시 컬럼(상환방식·금리방식·중도상환수수료)을 추가.
-- [x] **pytest + CI(GitHub Actions)** — 인라인 자체 테스트를 `pytest`로 분리(29개), push마다 자동 검증.
-  단위 테스트는 무거운 LLM 의존성 없이 동작하도록 `core`를 crewai 없이 import 가능하게 개선.
-- [ ] **배포** — Streamlit Community Cloud / Docker로 접속 가능한 라이브 데모 제공(방문자 키 입력 + 비용 보호장치 포함).
+- [x] **pytest + CI(GitHub Actions)** — 인라인 자체 테스트를 `pytest`로 분리(37개), push마다 자동 검증.
+  단위·API 테스트는 무거운 LLM 의존성 없이 동작하도록 `core`를 crewai 없이 import 가능하게 개선.
+- [x] **FastAPI 서비스 계층** — `core`를 REST API(`/screen`·`/advise` 등)로 노출. 결정적/LLM 경로를
+  URL로 분리, OpenAPI 자동 문서, 값비싼 호출 전 방어(422/503). [기술노트](docs/기술노트_FastAPI서비스화.md).
+- [ ] **배포** — Docker화 + Streamlit Community Cloud 라이브 데모(방문자 키 입력 + 비용 보호장치 포함).
 
 ---
 
