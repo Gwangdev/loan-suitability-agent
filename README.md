@@ -169,6 +169,16 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
+### LLM 출력 품질 평가 (Eval)
+
+3-Agent 출력을 결정적 정답과 대조해 정량 채점한다(파싱정확도·판정정합성·디스클레이머·추천정합성·수치근거·조건부표현).
+사전 녹화 출력을 채점하므로 **API 비용 0**이며 CI에서 실행된다. 결함을 주입해 평가가 실제로 회귀를 잡는지도 검증했다.
+자세한 방법·결과는 [평가 리포트](docs/평가리포트.md).
+
+```bash
+python3 -c "from loan_agent import eval; eval.run_eval_selftest()"   # 현재 30/30 (100%)
+```
+
 ## 로드맵
 
 - [x] **DSR 심사 고도화** — 간이 DTI(`기존부채 ÷ 연소득`)를 금융위 정의인
@@ -186,6 +196,9 @@ pytest
 - [x] **무토큰 데모** — 키 없는 방문자도 사전 녹화된 실제 결과를 열람한다(토큰 0).
 - [x] **Docker화** — 이식 가능한 컨테이너 이미지([Dockerfile](Dockerfile)). 로컬 빌드·기동 검증 완료.
 - [x] **Streamlit Community Cloud 라이브 데모** — 공개 URL 제공: https://loan-suitability-agent.streamlit.app/
+- [x] **LLM 출력 품질 평가(Eval 하네스)** — 3-Agent 출력을 결정적 정답과 대조해 6개 지표로 정량 채점(현재 30/30).
+  사전 녹화 출력 채점이라 비용 0·CI 실행 가능하며, 결함 주입 테스트로 회귀 탐지력을 검증하였다. [평가 리포트](docs/평가리포트.md).
+- [ ] **재입력 UX 하이브리드(C-3)** · **성능 최적화 캐싱(C-1)** — v2 후속.
 
 ---
 
