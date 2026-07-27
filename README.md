@@ -107,6 +107,18 @@ curl -X POST http://127.0.0.1:8000/screen -H "Content-Type: application/json" \
 | `POST /parse`·`POST /screen` | 자연어 파싱 / 결정적 심사 판정 | 불필요 |
 | `POST /advise` | 3-Agent 파이프라인 전체 | 필요 |
 
+### Docker로 실행
+
+어디서든 동일하게 실행할 수 있는 컨테이너 이미지를 제공합니다([Dockerfile](Dockerfile)).
+
+```bash
+docker build -t loan-suitability-agent .
+docker run -p 8501:8501 loan-suitability-agent    # http://localhost:8501
+```
+
+키는 이미지에 넣지 않습니다(`.dockerignore`로 `.env` 제외). 키 없이도 무토큰 데모가 동작하며,
+직접 실행은 앱 사이드바에 방문자 키를 입력하면 됩니다.
+
 ### 📽️ 무토큰 데모 (키 없는 방문자용)
 
 공개 데모에서 **누구의 토큰도 소모하지 않고** '입력 → 실제 3-Agent 출력'을 볼 수 있습니다.
@@ -160,7 +172,10 @@ pytest
   단위·API 테스트는 무거운 LLM 의존성 없이 동작하도록 `core`를 crewai 없이 import 가능하게 개선.
 - [x] **FastAPI 서비스 계층** — `core`를 REST API(`/screen`·`/advise` 등)로 노출. 결정적/LLM 경로를
   URL로 분리, OpenAPI 자동 문서, 값비싼 호출 전 방어(422/503). [기술노트](docs/기술노트_FastAPI서비스화.md).
-- [ ] **배포** — Docker화 + Streamlit Community Cloud 라이브 데모(방문자 키 입력 + 비용 보호장치 포함).
+- [x] **방문자 키 입력 + 비용 보호장치** — 세션 한정 키(누출 방지), 입력/횟수 상한·쿨다운.
+- [x] **무토큰 데모** — 키 없는 방문자도 사전 녹화된 실제 결과 열람(토큰 0).
+- [x] **Docker화** — 이식 가능한 컨테이너 이미지([Dockerfile](Dockerfile)), 로컬 빌드·기동 검증 완료.
+- [ ] **Streamlit Community Cloud 라이브 데모** — GitHub 연동으로 공개 URL 제공(예정).
 
 ---
 

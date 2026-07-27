@@ -1,0 +1,24 @@
+# 이미지에 넣지 않을 것 — 빌드 컨텍스트 축소 + 비밀/불필요 파일 제외
+.git
+.github
+.venv
+venv
+env
+__pycache__
+*.pyc
+.pytest_cache
+
+# 비밀 (절대 이미지에 포함 금지)
+.env
+.env.*
+.streamlit/secrets.toml
+
+# 런타임에 불필요 (노트북·테스트·문서)
+*.ipynb
+tests
+docs
+
+# OS/에디터
+.DS_Store
+.idea
+.vscode
