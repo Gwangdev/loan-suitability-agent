@@ -365,12 +365,13 @@ def _badge_html(verdict: str) -> str:
     return f"<span class='apple-badge' style='background:{color};'>{verdict}</span>"
 
 
-def _run_pipeline(customer_input: str) -> dict:
+def _run_pipeline(customer_input: str, api_key: str = None) -> dict:
     """crewai Task의 callback은 crewai 내부 스레드(ThreadPoolExecutor)에서 실행되므로,
     거기서 Streamlit API(st.status 등)를 직접 부르면 ScriptRunContext가 없어 그 콜백이
     죽어버리고 crewai가 이를 Task Failure로 처리한다. 그래서 콜백은 스레드 안전한
     queue.Queue에만 값을 넣고, 실제 st.status 업데이트는 메인 스레드(여기)에서
-    큐를 폴링하며 처리한다."""
+    큐를 폴링하며 처리한다.
+    [디벨롭: 방문자 키] api_key를 방문자별 키로 파이프라인에 그대로 전달한다."""
     stage_queue: "queue.Queue" = queue.Queue()
     outcome: dict = {}
 
@@ -380,7 +381,7 @@ def _run_pipeline(customer_input: str) -> dict:
     def worker():
         try:
             outcome["result"] = asyncio.run(
-                core.run_service_with_stages(customer_input, on_stage=on_stage)
+                core.run_service_with_stages(customer_input, on_stage=on_stage, api_key=api_key)
             )
         except Exception as e:  # noqa: BLE001 - 메인 스레드로 예외를 그대로 전달
             outcome["error"] = e
@@ -532,6 +533,24 @@ def _load_demo(index: int):
         st.session_state.is_demo = True
 
 
+# [디벨롭: 비용 보호장치] 방문자가 자기 키를 쓰더라도 무제한 호출로 지갑이 새지 않도록
+#   하는 상한(§docs 개선계획 C-4). 공개 데모 기준의 보수적 기본값.
+MAX_INPUT_CHARS = 2000        # 입력 길이 상한 → 토큰 폭증 차단
+MAX_RUNS_PER_SESSION = 10     # 세션당 실제 실행(LLM) 횟수 상한
+COOLDOWN_SEC = 5              # 연속 실행 최소 간격(쿨다운)
+
+
+def _effective_api_key():
+    """이 세션에서 실제 파이프라인 실행에 쓸 키를 결정한다.
+    우선순위: 방문자가 사이드바에 입력한 키(세션 메모리) > 서버 환경변수(.env/secrets).
+    [디벨롭: 방문자 키] 방문자 키는 session_state에만 두고 os.environ에 넣지 않는다
+    (공유 프로세스에서 타 방문자에게 새지 않도록). 없으면 None."""
+    visitor = (st.session_state.get("visitor_key") or "").strip()
+    if visitor:
+        return visitor
+    return os.getenv("OPENAI_API_KEY") or None
+
+
 def main():
     _inject_apple_css()
 
@@ -546,6 +565,16 @@ def main():
         st.session_state.customer_input = ""
 
     with st.sidebar:
+        # [디벨롭: 방문자 키] 공개 데모용 — 방문자가 자기 OpenAI 키로 직접 실행.
+        #   키는 이 세션 메모리에만 보관되고 저장/전송되지 않는다.
+        st.text_input(
+            "OpenAI API 키 (직접 실행용)", key="visitor_key", type="password",
+            placeholder="sk-... (선택 · 세션에만 보관)",
+            help="입력한 키는 이 브라우저 세션에만 보관되며 서버에 저장되지 않습니다. "
+                 "키 없이도 아래 '📽️ 토큰 없이 데모 보기'는 이용할 수 있습니다.",
+        )
+        st.divider()
+
         st.caption("예시 케이스 (클릭 시 입력창에 채워짐)")
         for tc in core.TEST_CASES:
             st.button(
@@ -570,17 +599,19 @@ def main():
                     on_click=_load_demo, args=(i,),
                 )
 
-    if not core.has_api_key():
-        st.error(
-            "⚠️ OPENAI_API_KEY를 찾을 수 없습니다. 프로젝트 루트의 `.env` 파일에 "
-            "`OPENAI_API_KEY`를 설정하거나, `.streamlit/secrets.toml`에 등록한 뒤 앱을 다시 실행하세요. "
-            "키가 없으면 심사 실행 버튼이 비활성화됩니다."
+    # [디벨롭: 방문자 키] 실제 실행에 쓸 키(방문자 키 우선, 없으면 서버 키). 데모는 키와 무관.
+    api_key = _effective_api_key()
+    if not api_key:
+        st.info(
+            "🔑 직접 실행하려면 사이드바에 **본인 OpenAI 키**를 입력하세요(세션에만 보관). "
+            "키가 없어도 사이드바의 **📽️ 토큰 없이 데모 보기**로 실제 결과를 볼 수 있습니다."
         )
 
     with st.container(border=True):
         st.markdown("<div class='card-eyebrow'>고객 상담 입력</div>", unsafe_allow_html=True)
         st.text_area(
             "고객 상담 내용", key="customer_input", height=110, label_visibility="collapsed",
+            max_chars=MAX_INPUT_CHARS,  # [비용 보호] 입력 길이 상한 → 토큰 폭증 차단
             placeholder="예) 월급 350만원 받는 정규직이고 부채는 800만원 있어요. 신용등급 3등급이고 2000만원 대출받고 싶어요.",
         )
         chips_html = "".join(f"<span class='apple-chip'>{kw}</span>" for kw in EXAMPLE_KEYWORDS)
@@ -590,14 +621,29 @@ def main():
             f"<div class='apple-chip-row'>{chips_html}</div>",
             unsafe_allow_html=True,
         )
-        run_clicked = st.button("심사 시작", type="primary", disabled=not core.has_api_key())
+        run_count = st.session_state.get("run_count", 0)
+        quota_left = MAX_RUNS_PER_SESSION - run_count
+        run_clicked = st.button(
+            "심사 시작", type="primary",
+            disabled=(api_key is None or quota_left <= 0),
+        )
+        # [비용 보호] 세션 사용량 표시
+        st.caption(f"이번 세션 실행 {run_count}/{MAX_RUNS_PER_SESSION}회 · 남은 실행 {max(quota_left,0)}회")
 
     if run_clicked:
         text = st.session_state.customer_input.strip()
         # [타팀 피드백-2] 필수 정보 누락 시 에러처리: Agent를 돌리기 전에 규칙 기반 파서(API 키 불필요)로
         #   미리 확인해, 정보 부족을 '어려움'으로 오판하거나 헛되이 시간·비용을 쓰지 않게 한다.
         missing = core.missing_required_fields(core.rule_based_parse(text)) if text else None
-        if not text:
+        # [비용 보호] 세션 실행 횟수 상한 + 연속 실행 쿨다운
+        now = time.monotonic()
+        last_ts = st.session_state.get("last_run_ts", 0.0)
+        if run_count >= MAX_RUNS_PER_SESSION:
+            st.warning(f"이번 세션 실행 한도({MAX_RUNS_PER_SESSION}회)에 도달했습니다. "
+                       "잠시 후 새 세션(새로고침)에서 다시 시도해주세요.")
+        elif now - last_ts < COOLDOWN_SEC:
+            st.warning(f"연속 실행을 제한합니다. {COOLDOWN_SEC - int(now - last_ts)}초 후 다시 시도해주세요.")
+        elif not text:
             st.warning("고객 상담 내용을 먼저 입력해주세요.")
         elif missing:
             st.warning(
@@ -608,9 +654,12 @@ def main():
             )
         else:
             try:
-                st.session_state.last_result = _run_pipeline(text)
+                st.session_state.last_result = _run_pipeline(text, api_key=api_key)
                 st.session_state.last_input = text
                 st.session_state.is_demo = False   # 실제 실행 결과
+                # [비용 보호] 성공한 실제 실행만 카운트/타임스탬프 갱신
+                st.session_state.run_count = run_count + 1
+                st.session_state.last_run_ts = now
             except Exception as e:
                 st.error(f"⚠️ {_friendly_error_message(e)}")
                 with st.expander("자세한 오류 내용 보기"):
