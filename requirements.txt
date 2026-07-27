@@ -1,10 +1,7 @@
+# 런타임(앱·API) 의존성 — Streamlit Cloud / Docker가 이 파일을 설치한다.
+#   노트북·테스트 등 개발 도구는 requirements-dev.txt 참고(이 파일을 포함).
 crewai[tools]>=1.15,<2.0
 python-dotenv>=1.0
-jupyter>=1.0
-nbconvert>=7.0
-ipykernel>=6.0
-ipywidgets>=8.0
 streamlit>=1.60
-# [디벨롭: FastAPI 서비스화] REST API 서비스 계층
 fastapi>=0.110
 uvicorn>=0.27

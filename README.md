@@ -75,8 +75,9 @@ loan-suitability-agent/
 ## 빠른 시작
 
 ```bash
-# 1) 의존성 설치
+# 1) 런타임 의존성 설치 (앱/API)
 pip install -r requirements.txt
+#    노트북·테스트까지 포함한 전체 개발환경은:  pip install -r requirements-dev.txt
 
 # 2) (LLM 파이프라인 실행 시) 키 설정
 cp .env.example .env      # .env 를 열어 OPENAI_API_KEY 입력
@@ -84,7 +85,7 @@ cp .env.example .env      # .env 를 열어 OPENAI_API_KEY 입력
 # 3) Streamlit 웹앱 실행
 streamlit run loan_agent/app.py
 
-# 또는 노트북으로 단계별 확인
+# 노트북으로 단계별 확인 (requirements-dev.txt 설치 필요)
 jupyter lab loan_agent_demo.ipynb
 ```
 

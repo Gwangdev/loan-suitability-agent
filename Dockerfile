@@ -15,9 +15,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 의존성 먼저 설치(레이어 캐시 활용) — 런타임 전용 목록 사용
-COPY requirements-app.txt .
-RUN pip install -r requirements-app.txt
+# 의존성 먼저 설치(레이어 캐시 활용) — requirements.txt는 런타임 전용(노트북/테스트 제외)
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
 # 애플리케이션 코드·데이터 (core.BASE_DIR = /app 이므로 CSV는 /app 루트에 위치해야 함)
 COPY loan_agent/ ./loan_agent/

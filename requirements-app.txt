@@ -1,7 +1,0 @@
-# 배포(컨테이너) 런타임 전용 의존성 — 노트북/개발 도구(jupyter·nbconvert 등) 제외해
-#   이미지를 가볍게 유지한다. (전체 개발환경은 requirements.txt / requirements-dev.txt 참고)
-crewai[tools]>=1.15,<2.0
-python-dotenv>=1.0
-streamlit>=1.60
-fastapi>=0.110
-uvicorn>=0.27
