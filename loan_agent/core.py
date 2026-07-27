@@ -315,6 +315,22 @@ EDGE_CASES = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# [디벨롭: 무토큰 데모] 사전 녹화된 데모 결과 로더
+#   공개 배포 시 방문자가 자기 OPENAI_API_KEY 없이도 '입력 → 실제 3-Agent 출력'을
+#   토큰 소모 0으로 열람할 수 있도록, 미리 1회 실행해 구운 결과(demo_fixtures.json)를 읽는다.
+#   (파일 생성 스크립트: 저장소 외부에서 owner 키로 1회 실행 → 결과만 커밋)
+# ---------------------------------------------------------------------------
+DEMO_FIXTURES_PATH = Path(__file__).resolve().parent / "demo_fixtures.json"
+
+
+def load_demo_fixtures() -> dict:
+    """사전 녹화된 데모 결과를 로드한다(키·토큰 불필요). 파일이 없으면 빈 구조를 반환."""
+    if not DEMO_FIXTURES_PATH.exists():
+        return {"cases": [], "generated_at": None, "model": None}
+    return json.loads(DEMO_FIXTURES_PATH.read_text(encoding="utf-8"))
+
+
 def run_logic_selftest(cases: list = None) -> bool:
     """API 키 없이 결정적 심사 로직만 검증(R5 핵심). 전체 일치 시 True."""
     cases = cases if cases is not None else TEST_CASES

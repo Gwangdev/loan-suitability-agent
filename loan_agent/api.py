@@ -67,6 +67,29 @@ def products():
     return {"count": len(core.PRODUCTS), "products": core.PRODUCTS}
 
 
+@app.get("/demo", tags=["demo"])
+def demo_list():
+    """[무토큰 데모] 사전 녹화된 데모 케이스 목록. 토큰·키 소모 없음."""
+    fx = core.load_demo_fixtures()
+    return {
+        "generated_at": fx.get("generated_at"),
+        "model": fx.get("model"),
+        "cases": [
+            {"index": i, "name": c["name"], "input": c["input"], "expected": c["expected"]}
+            for i, c in enumerate(fx.get("cases", []))
+        ],
+    }
+
+
+@app.get("/demo/{index}", tags=["demo"])
+def demo_case(index: int):
+    """[무토큰 데모] 특정 데모 케이스의 입력 + 사전 녹화된 3-Agent 출력 전체."""
+    cases = core.load_demo_fixtures().get("cases", [])
+    if index < 0 or index >= len(cases):
+        raise HTTPException(status_code=404, detail="해당 데모 케이스가 없습니다.")
+    return cases[index]
+
+
 @app.post("/parse", tags=["screening"])
 def parse(payload: TextIn):
     """자연어를 규칙 기반으로 구조화하고, 부족한 필수 필드를 함께 반환한다(키 불필요)."""
