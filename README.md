@@ -103,8 +103,16 @@ curl -X POST http://127.0.0.1:8000/screen -H "Content-Type: application/json" \
 | 엔드포인트 | 설명 | LLM 키 |
 |---|---|---|
 | `GET /health`·`GET /products` | 상태 / 상품 목록 | 불필요 |
+| `GET /demo`·`GET /demo/{i}` | **사전 녹화된 데모 결과(토큰 0)** | 불필요 |
 | `POST /parse`·`POST /screen` | 자연어 파싱 / 결정적 심사 판정 | 불필요 |
 | `POST /advise` | 3-Agent 파이프라인 전체 | 필요 |
+
+### 📽️ 무토큰 데모 (키 없는 방문자용)
+
+공개 데모에서 **누구의 토큰도 소모하지 않고** '입력 → 실제 3-Agent 출력'을 볼 수 있습니다.
+실제 파이프라인을 미리 1회 실행해 구운 결과([demo_fixtures.json](loan_agent/demo_fixtures.json))를
+Streamlit 사이드바의 "📽️ 토큰 없이 데모 보기" 버튼과 API `GET /demo`로 제공합니다.
+직접 실행하려는 방문자는 자기 OpenAI 키를 입력하면 됩니다.
 
 ### API 키 없이 심사 로직만 검증
 

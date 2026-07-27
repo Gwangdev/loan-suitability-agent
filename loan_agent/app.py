@@ -512,6 +512,24 @@ def _reset_input():
     st.session_state.customer_input = ""
     st.session_state.pop("last_result", None)
     st.session_state.pop("last_input", None)
+    st.session_state.pop("is_demo", None)
+
+
+# [디벨롭: 무토큰 데모] 사전 녹화된 결과 로더(캐시) — 방문자가 키·토큰 없이 결과를 열람.
+@st.cache_data(show_spinner=False)
+def _demo_fixtures():
+    return core.load_demo_fixtures()
+
+
+def _load_demo(index: int):
+    """데모 케이스의 사전 녹화 결과를 결과 슬롯에 실어, 파이프라인 실행 없이 렌더한다(토큰 0)."""
+    fx = _demo_fixtures()
+    cases = fx.get("cases", [])
+    if 0 <= index < len(cases):
+        case = cases[index]
+        st.session_state.last_result = case["result"]
+        st.session_state.last_input = case["input"]
+        st.session_state.is_demo = True
 
 
 def main():
@@ -539,6 +557,18 @@ def main():
                 tc["name"], key=f"ec_{tc['name']}", width="stretch",
                 on_click=_fill_input, args=(tc["input"],),
             )
+
+        # [디벨롭: 무토큰 데모] 키가 없는 방문자도 '입력 → 실제 3-Agent 출력'을
+        #   토큰 소모 0으로 볼 수 있는 사전 녹화 결과 버튼.
+        demo_cases = _demo_fixtures().get("cases", [])
+        if demo_cases:
+            st.divider()
+            st.caption("📽️ 토큰 없이 데모 보기 (사전 녹화 결과 · 키 불필요)")
+            for i, dc in enumerate(demo_cases):
+                st.button(
+                    f"▶ {dc['name']}", key=f"demo_{i}", width="stretch",
+                    on_click=_load_demo, args=(i,),
+                )
 
     if not core.has_api_key():
         st.error(
@@ -580,12 +610,22 @@ def main():
             try:
                 st.session_state.last_result = _run_pipeline(text)
                 st.session_state.last_input = text
+                st.session_state.is_demo = False   # 실제 실행 결과
             except Exception as e:
                 st.error(f"⚠️ {_friendly_error_message(e)}")
                 with st.expander("자세한 오류 내용 보기"):
                     st.code(str(e))
 
     if st.session_state.get("last_result"):
+        # [디벨롭: 무토큰 데모] 사전 녹화 결과일 때 명확히 고지(실제 실행과 구분).
+        if st.session_state.get("is_demo"):
+            fx = _demo_fixtures()
+            st.info(
+                f"📽️ **사전 녹화된 데모 결과입니다 — 토큰이 전혀 소모되지 않았습니다.** "
+                f"실제 3-Agent 파이프라인을 미리 1회 실행해 저장한 입력/출력이며, "
+                f"직접 실행하려면 사이드바에 본인 OpenAI 키를 입력하세요. "
+                f"(생성 모델: {fx.get('model', 'N/A')})"
+            )
         st.caption(f"입력: {st.session_state.get('last_input', '')}")
         _render_result(st.session_state.last_result)
         st.button("다시 입력하기", on_click=_reset_input)
