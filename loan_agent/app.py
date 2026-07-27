@@ -60,15 +60,6 @@ STAGE_LABEL = {
 }
 STAGE_NEXT = {"parse": "review", "review": "advise", "advise": None}
 
-EXAMPLE_KEYWORDS = [
-    "월급",
-    "부채",
-    "신용등급",
-    "희망 대출금액",
-    "정규직 / 계약직",
-    "담보 제공 여부",
-]
-
 # [타팀 피드백-1] Agent 2 작동 시간이 길어 프론트엔드 UX가 답답하다는 지적 반영.
 #   심사(특히 Agent 2)가 수 초~수십 초 걸리므로, 대기 중 화면이 멈춘 것처럼 보이지 않도록
 #   이 팁들을 몇 초 간격으로 돌려 유용한 정보를 제공한다(교육용 데모라 개념 설명 위주).
@@ -432,7 +423,9 @@ def _run_pipeline(customer_input: str, api_key: str = None) -> dict:
     return outcome["result"]
 
 
-def _render_result(out: dict):
+def _render_result(out: dict, screen: dict = None):
+    # [디벨롭 v2: C-3] screen을 인자로 받으면(구조화 폼 기준 결정적 판정) 그것을 권위값으로 쓴다.
+    #   → 화면 배지·적격상품이 LLM 재파싱이 아니라 '사용자가 확정한 구조화 입력'과 일치(A1 이중경로 해소).
     with st.container(border=True):
         st.markdown("<div class='card-eyebrow'>STEP 1</div>", unsafe_allow_html=True)
         st.subheader("Agent 1 — 파싱 결과")
@@ -445,8 +438,9 @@ def _render_result(out: dict):
     with st.container(border=True):
         st.markdown("<div class='card-eyebrow'>STEP 2</div>", unsafe_allow_html=True)
         st.subheader("Agent 2 — 심사 결과")
-        if parsed is not None:
-            screen = core.screen_loan(parsed)
+        if parsed is not None or screen is not None:
+            if screen is None:
+                screen = core.screen_loan(parsed)
             col1, col2 = st.columns([1, 3])
             with col1:
                 st.markdown(_badge_html(screen["판정"]), unsafe_allow_html=True)
@@ -498,31 +492,74 @@ def _render_result(out: dict):
         else:
             st.warning("Agent 1의 출력을 JSON으로 해석하지 못해, 결정적 심사 결과(배지·적격상품)를 계산할 수 없습니다.")
 
-        with st.expander("Agent 2 CoT·SC 원문 근거 보기", expanded=parsed is None):
-            st.write(out.get("심사결과") or "(없음)")
+        if out.get("심사결과"):
+            with st.expander("Agent 2 CoT·SC 원문 근거 보기"):
+                st.write(out["심사결과"])
 
     with st.container(border=True):
         st.markdown("<div class='card-eyebrow'>STEP 3</div>", unsafe_allow_html=True)
         st.subheader("Agent 3 — 최종 안내문")
-        st.markdown(out.get("안내문") or "(없음)")
         if out.get("안내문"):
+            st.markdown(out["안내문"])
             st.download_button(
                 "안내문 다운로드 (.txt)",
                 data=out["안내문"],
                 file_name="대출심사_안내문.txt",
                 mime="text/plain",
             )
+        else:
+            # [디벨롭 v2: C-3] 키 없이 결정적 심사만 돌린 경우 — 위 STEP 2가 판정을 이미 보여준다.
+            st.info("LLM 안내문은 사이드바에 **OpenAI 키**를 입력하면 생성됩니다. "
+                    "(현재는 키 없이 **결정적 심사 결과**만 표시)")
+
+
+# [디벨롭 v2: C-3] 하이브리드 입력 — 자유서술을 파싱해 구조화 폼을 채우고, 폼을 진실의 원천으로 삼는다.
+JOB_OPTIONS = ["제한없음", "정규직", "계약직"]
+
+
+def _fill_form_from_text():
+    """자유 서술을 규칙기반 파싱해 구조화 폼 필드를 채운다(키 불필요)."""
+    p = core.rule_based_parse(st.session_state.get("customer_input", ""))
+    st.session_state.f_income = int(p.get("월소득") or 0)
+    st.session_state.f_debt = int(p.get("부채") or 0)
+    g = p.get("신용등급", 99)
+    st.session_state.f_grade = 0 if (not g or g >= 99) else int(g)   # 0 = 미입력
+    st.session_state.f_amount = int(p.get("희망금액") or 0)
+    job = p.get("직장유형", "제한없음")
+    st.session_state.f_job = job if job in JOB_OPTIONS else "제한없음"
+    st.session_state.f_collateral = bool(p.get("담보보유"))
+
+
+def _form_customer() -> dict:
+    """현재 폼 값 → 구조화 고객 dict. 신용등급 0(미입력)은 sentinel 99로."""
+    g = int(st.session_state.get("f_grade", 0) or 0)
+    return {
+        "월소득": int(st.session_state.get("f_income", 0) or 0),
+        "부채": int(st.session_state.get("f_debt", 0) or 0),
+        "신용등급": g if g else 99,
+        "희망금액": int(st.session_state.get("f_amount", 0) or 0),
+        "직장유형": st.session_state.get("f_job", "제한없음"),
+        "담보보유": bool(st.session_state.get("f_collateral", False)),
+    }
+
+
+def _customer_to_nl(c: dict) -> str:
+    """구조화 고객 dict → LLM 파이프라인용 표준 자연어 문장(깨끗한 입력으로 파싱 일관성 확보)."""
+    return (f"월소득 {c['월소득']}원, 부채 {c['부채']}원, 신용등급 {c['신용등급']}등급, "
+            f"희망 대출금액 {c['희망금액']}원, 직장유형 {c['직장유형']}, "
+            f"담보 {'보유' if c['담보보유'] else '미보유'}.")
 
 
 def _fill_input(text: str):
+    """예시 케이스 클릭 → 텍스트 채우고 곧바로 구조화 폼까지 자동 채움."""
     st.session_state.customer_input = text
+    _fill_form_from_text()
 
 
 def _reset_input():
     st.session_state.customer_input = ""
-    st.session_state.pop("last_result", None)
-    st.session_state.pop("last_input", None)
-    st.session_state.pop("is_demo", None)
+    for k in ("last_result", "last_input", "is_demo", "last_screen"):
+        st.session_state.pop(k, None)
 
 
 # [디벨롭: 무토큰 데모] 사전 녹화된 결과 로더(캐시) — 방문자가 키·토큰 없이 결과를 열람.
@@ -540,6 +577,7 @@ def _load_demo(index: int):
         st.session_state.last_result = case["result"]
         st.session_state.last_input = case["input"]
         st.session_state.is_demo = True
+        st.session_state.last_screen = None  # 데모는 픽스처 파싱에서 screen 재계산
 
 
 # [디벨롭: 비용 보호장치] 방문자가 자기 키를 쓰더라도 무제한 호출로 지갑이 새지 않도록
@@ -616,57 +654,68 @@ def main():
             "키가 없어도 사이드바의 **📽️ 토큰 없이 데모 보기**로 실제 결과를 볼 수 있습니다."
         )
 
+    # [디벨롭 v2: C-3] 하이브리드 입력: ①자유서술 → ②'채우기'로 폼 자동채움 → ③부족분 보완 → ④폼으로 제출.
     with st.container(border=True):
-        st.markdown("<div class='card-eyebrow'>고객 상담 입력</div>", unsafe_allow_html=True)
+        st.markdown("<div class='card-eyebrow'>1. 자유 서술 (선택)</div>", unsafe_allow_html=True)
         st.text_area(
-            "고객 상담 내용", key="customer_input", height=110, label_visibility="collapsed",
+            "고객 상담 내용", key="customer_input", height=90, label_visibility="collapsed",
             max_chars=MAX_INPUT_CHARS,  # [비용 보호] 입력 길이 상한 → 토큰 폭증 차단
             placeholder="예) 월급 350만원 받는 정규직이고 부채는 800만원 있어요. 신용등급 3등급이고 2000만원 대출받고 싶어요.",
         )
-        chips_html = "".join(f"<span class='apple-chip'>{kw}</span>" for kw in EXAMPLE_KEYWORDS)
-        st.markdown(
-            "<div style='font-size:12px;color:var(--color-ink-muted-48);margin-top:2px;'>"
-            "💡 이런 내용을 포함해서 입력해보세요</div>"
-            f"<div class='apple-chip-row'>{chips_html}</div>",
-            unsafe_allow_html=True,
-        )
+        st.button("📝 자연어에서 아래 항목 채우기", on_click=_fill_form_from_text)
+
+        st.markdown("<div class='card-eyebrow' style='margin-top:14px;'>2. 항목 확인·보완 (제출 기준)</div>",
+                    unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.number_input("월 소득 (원)", min_value=0, step=100_000, key="f_income")
+            st.number_input("희망 대출금액 (원)", min_value=0, step=1_000_000, key="f_amount")
+        with c2:
+            st.number_input("부채 (원)", min_value=0, step=100_000, key="f_debt")
+            st.number_input("신용등급 (1~10, 0=미입력)", min_value=0, max_value=10, step=1, key="f_grade")
+        with c3:
+            st.selectbox("직장 형태", JOB_OPTIONS, key="f_job")
+            st.checkbox("담보 제공 가능", key="f_collateral")
+
+        customer = _form_customer()
+        missing = core.missing_required_fields(customer)
+        if missing:
+            st.error("보완이 필요한 항목: " + ", ".join(f"**{m}**" for m in missing)
+                     + " — 자유 서술로 채우거나 위 항목을 직접 입력하세요.")
+
         run_count = st.session_state.get("run_count", 0)
         quota_left = MAX_RUNS_PER_SESSION - run_count
-        run_clicked = st.button(
-            "심사 시작", type="primary",
-            disabled=(api_key is None or quota_left <= 0),
-        )
-        # [비용 보호] 세션 사용량 표시
-        st.caption(f"이번 세션 실행 {run_count}/{MAX_RUNS_PER_SESSION}회 · 남은 실행 {max(quota_left,0)}회")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            screen_clicked = st.button("결정적 심사 (키 불필요)", disabled=bool(missing))
+        with col_b:
+            run_clicked = st.button("AI 안내문까지 생성 (키 필요)", type="primary",
+                                    disabled=(bool(missing) or api_key is None or quota_left <= 0))
+        st.caption(f"이번 세션 AI 실행 {run_count}/{MAX_RUNS_PER_SESSION}회 · 남은 실행 {max(quota_left, 0)}회")
 
-    if run_clicked:
-        text = st.session_state.customer_input.strip()
-        # [타팀 피드백-2] 필수 정보 누락 시 에러처리: Agent를 돌리기 전에 규칙 기반 파서(API 키 불필요)로
-        #   미리 확인해, 정보 부족을 '어려움'으로 오판하거나 헛되이 시간·비용을 쓰지 않게 한다.
-        missing = core.missing_required_fields(core.rule_based_parse(text)) if text else None
-        # [비용 보호] 세션 실행 횟수 상한 + 연속 실행 쿨다운
+    # ④-a 결정적 심사만 (키·토큰 0) — 폼이 진실의 원천이므로 배지·판정이 폼과 정확히 일치(A1 해소).
+    if screen_clicked and not missing:
+        st.session_state.last_result = {"파싱결과": json.dumps(customer, ensure_ascii=False),
+                                        "심사결과": None, "안내문": None}
+        st.session_state.last_screen = core.screen_loan(customer)
+        st.session_state.last_input = _customer_to_nl(customer)
+        st.session_state.is_demo = False
+
+    # ④-b AI 안내문까지 (키 필요) — 구조화 값을 표준 문장으로 만들어 파이프라인에 투입.
+    if run_clicked and not missing:
         now = time.monotonic()
         last_ts = st.session_state.get("last_run_ts", 0.0)
         if run_count >= MAX_RUNS_PER_SESSION:
-            st.warning(f"이번 세션 실행 한도({MAX_RUNS_PER_SESSION}회)에 도달했습니다. "
-                       "잠시 후 새 세션(새로고침)에서 다시 시도해주세요.")
+            st.warning(f"이번 세션 실행 한도({MAX_RUNS_PER_SESSION}회)에 도달했습니다. 새로고침 후 다시 시도해주세요.")
         elif now - last_ts < COOLDOWN_SEC:
             st.warning(f"연속 실행을 제한합니다. {COOLDOWN_SEC - int(now - last_ts)}초 후 다시 시도해주세요.")
-        elif not text:
-            st.warning("고객 상담 내용을 먼저 입력해주세요.")
-        elif missing:
-            st.warning(
-                "다음 필수 정보가 확인되지 않아 심사를 진행할 수 없습니다: "
-                + ", ".join(f"**{m}**" for m in missing)
-                + ".\n\n예) `월급 350만원 받는 정규직이고 부채는 800만원, 신용등급 3등급, 2000만원 대출받고 싶어요.` "
-                "처럼 월 소득·신용등급·희망 대출금액을 포함해 다시 입력해주세요."
-            )
         else:
             try:
-                st.session_state.last_result = _run_pipeline(text, api_key=api_key)
-                st.session_state.last_input = text
-                st.session_state.is_demo = False   # 실제 실행 결과
-                # [비용 보호] 성공한 실제 실행만 카운트/타임스탬프 갱신
+                nl = _customer_to_nl(customer)
+                st.session_state.last_result = _run_pipeline(nl, api_key=api_key)
+                st.session_state.last_screen = core.screen_loan(customer)  # 권위 판정 = 구조화 폼
+                st.session_state.last_input = nl
+                st.session_state.is_demo = False
                 st.session_state.run_count = run_count + 1
                 st.session_state.last_run_ts = now
             except Exception as e:
@@ -685,7 +734,7 @@ def main():
                 f"(생성 모델: {fx.get('model', 'N/A')})"
             )
         st.caption(f"입력: {st.session_state.get('last_input', '')}")
-        _render_result(st.session_state.last_result)
+        _render_result(st.session_state.last_result, screen=st.session_state.get("last_screen"))
         st.button("다시 입력하기", on_click=_reset_input)
 
     st.markdown(
