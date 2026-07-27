@@ -420,18 +420,23 @@ def screen_tool(고객정보_json: str) -> str:
 # ---------------------------------------------------------------------------
 # Agent / Task / Crew (API 키 필요 — get_crew() 호출 시점까지 생성을 미룬다)
 # ---------------------------------------------------------------------------
-def get_llm():
-    """OPENAI_API_KEY가 없으면 즉시 명확한 ValueError로 중단."""
+def get_llm(api_key: str = None):
+    """LLM 인스턴스를 생성한다.
+    [디벨롭: 방문자 키] api_key를 명시적으로 받으면 그 키를 쓰고(공개 배포에서 방문자별 키),
+    없으면 환경변수(OPENAI_API_KEY)로 폴백한다. 방문자 키를 os.environ에 저장하지 않고
+    이렇게 인자로만 넘기는 이유: Streamlit Cloud처럼 여러 방문자가 한 프로세스를 공유할 때
+    한 사람의 키가 os.environ을 통해 다른 사람 요청에 새는 것을 막기 위함이다."""
+    # 키 검증을 crewai import보다 먼저 — 키가 없으면 무거운 의존성 없이도 즉시 명확한 오류.
+    key = api_key or os.getenv("OPENAI_API_KEY")
+    if not key:
+        raise ValueError(
+            "OPENAI_API_KEY를 찾을 수 없습니다. .env에 설정하거나(로컬), "
+            "앱 사이드바에 본인 키를 입력하세요(공개 데모). 키 없이도 '무토큰 데모'는 이용 가능합니다."
+        )
     from crewai import LLM
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError(
-            "OPENAI_API_KEY를 찾을 수 없습니다. 프로젝트 폴더의 .env 파일에 "
-            "OPENAI_API_KEY를 설정하세요. (.env.example 참고)"
-        )
     model_name = os.getenv("OPENAI_MODEL_NAME", "openai/gpt-4o-mini")
-    return LLM(model=model_name, api_key=api_key, temperature=0.2), model_name
+    return LLM(model=model_name, api_key=key, temperature=0.2), model_name
 
 
 def build_parser_agent(llm):
@@ -626,12 +631,13 @@ def has_api_key() -> bool:
     return bool(os.getenv("OPENAI_API_KEY"))
 
 
-def build_fresh_crew(on_stage=None):
+def build_fresh_crew(on_stage=None, api_key: str = None):
     """호출할 때마다 새 Agent/Task/Crew를 생성한다(캐시하지 않음).
-    Streamlit처럼 요청마다 서로 다른 on_stage 콜백(단계별 진행 표시)을 붙여야 할 때 사용."""
+    Streamlit처럼 요청마다 서로 다른 on_stage 콜백(단계별 진행 표시)을 붙여야 할 때 사용.
+    [디벨롭: 방문자 키] api_key를 넘기면 그 키로 LLM을 만든다(방문자별 키·전역 저장 없음)."""
     from crewai import Crew, Process
 
-    llm, model_name = get_llm()
+    llm, model_name = get_llm(api_key=api_key)
     parser = build_parser_agent(llm)
     reviewer = build_reviewer_agent(llm)
     advisor = build_advisor_agent(llm)
@@ -663,9 +669,10 @@ async def run_service(customer_input: str) -> dict:
     return _result_dict(result, getattr(crew, "usage_metrics", None))
 
 
-async def run_service_with_stages(customer_input: str, on_stage=None) -> dict:
+async def run_service_with_stages(customer_input: str, on_stage=None, api_key: str = None) -> dict:
     """매 호출마다 새 crew를 만들어 실행한다. on_stage("parse"|"review"|"advise", output)로
-    단계 완료 시점을 통지받을 수 있다(Streamlit 단계별 spinner용)."""
-    crew, _ = build_fresh_crew(on_stage=on_stage)
+    단계 완료 시점을 통지받을 수 있다(Streamlit 단계별 spinner용).
+    [디벨롭: 방문자 키] api_key를 넘기면 그 키로 실행한다."""
+    crew, _ = build_fresh_crew(on_stage=on_stage, api_key=api_key)
     result = await crew.kickoff_async(inputs={"customer_input": customer_input})
     return _result_dict(result, getattr(crew, "usage_metrics", None))
