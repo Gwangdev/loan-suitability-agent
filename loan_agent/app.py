@@ -18,8 +18,17 @@ import json
 import os
 import queue
 import re
+import sys
 import threading
 import time
+
+# [디벨롭: 배포] Streamlit Cloud는 `streamlit run loan_agent/app.py`로 실행하며, 이때 리포 루트가
+#   sys.path에 포함되지 않아 `from loan_agent import core`가 ModuleNotFoundError로 실패한다
+#   (로컬 `python -m streamlit`은 CWD를 자동 추가하므로 문제없다). 실행 방식과 무관하게 동작하도록
+#   이 파일의 상위 폴더(=리포 루트)를 sys.path에 추가한다.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 import streamlit as st
 
