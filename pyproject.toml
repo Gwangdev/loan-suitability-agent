@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+# 테스트는 tests/ 아래에 있고, 모두 API 키 없이 동작한다(결정적 로직·파서·랭킹).
+testpaths = ["tests"]
+addopts = "-q"
