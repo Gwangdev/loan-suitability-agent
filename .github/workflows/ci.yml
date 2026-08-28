@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      # [디벨롭: pytest+CI] 단위·API 테스트는 crewai/streamlit 등 무거운 LLM 의존성 없이
+      # 단위·API 테스트는 crewai/streamlit 등 무거운 LLM 의존성 없이
       #   동작하도록 설계돼 있어(core가 crewai 없이 import 가능, /advise의 LLM 경로는 테스트에서
       #   호출하지 않음), 경량 의존성만 설치한다. → CI가 빠르고 외부 API 키도 필요 없다.
       - name: Install test dependencies

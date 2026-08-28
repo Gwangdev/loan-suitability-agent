@@ -22,7 +22,7 @@ import sys
 import threading
 import time
 
-# [디벨롭: 배포] Streamlit Cloud는 `streamlit run loan_agent/app.py`로 실행하며, 이때 리포 루트가
+# Streamlit Cloud는 `streamlit run loan_agent/app.py`로 실행하며, 이때 리포 루트가
 #   sys.path에 포함되지 않아 `from loan_agent import core`가 ModuleNotFoundError로 실패한다
 #   (로컬 `python -m streamlit`은 CWD를 자동 추가하므로 문제없다). 실행 방식과 무관하게 동작하도록
 #   이 파일의 상위 폴더(=리포 루트)를 sys.path에 추가한다.
@@ -371,7 +371,7 @@ def _run_pipeline(customer_input: str, api_key: str = None) -> dict:
     죽어버리고 crewai가 이를 Task Failure로 처리한다. 그래서 콜백은 스레드 안전한
     queue.Queue에만 값을 넣고, 실제 st.status 업데이트는 메인 스레드(여기)에서
     큐를 폴링하며 처리한다.
-    [디벨롭: 방문자 키] api_key를 방문자별 키로 파이프라인에 그대로 전달한다."""
+    api_key를 방문자별 키로 파이프라인에 그대로 전달한다."""
     stage_queue: "queue.Queue" = queue.Queue()
     outcome: dict = {}
 
@@ -424,7 +424,7 @@ def _run_pipeline(customer_input: str, api_key: str = None) -> dict:
 
 
 def _render_result(out: dict, screen: dict = None):
-    # [디벨롭 v2: C-3] screen을 인자로 받으면(구조화 폼 기준 결정적 판정) 그것을 권위값으로 쓴다.
+    # screen을 인자로 받으면(구조화 폼 기준 결정적 판정) 그것을 권위값으로 쓴다.
     #   → 화면 배지·적격상품이 LLM 재파싱이 아니라 '사용자가 확정한 구조화 입력'과 일치(A1 이중경로 해소).
     with st.container(border=True):
         st.markdown("<div class='card-eyebrow'>STEP 1</div>", unsafe_allow_html=True)
@@ -445,7 +445,7 @@ def _render_result(out: dict, screen: dict = None):
             with col1:
                 st.markdown(_badge_html(screen["판정"]), unsafe_allow_html=True)
             with col2:
-                # [디벨롭: DSR 고도화] 화면 지표를 간이 DTI → 실제 DSR로 교체.
+                # 화면 지표를 간이 DTI → 실제 DSR로 교체.
                 #   월상환액 내역(기존/신규)과 가정값을 함께 보여 근거를 투명하게 노출한다.
                 dsr_pct = f"{screen['DSR'] * 100:.1f}%" if screen["DSR"] is not None else "확인 불가"
                 st.write(f"상환능력: **{screen['상환능력']}**  ·  DSR(연간 원리금상환액÷연소득): **{dsr_pct}**")
@@ -465,7 +465,7 @@ def _render_result(out: dict, screen: dict = None):
                     f"추천 상품: **{best['상품코드']} {best['상품명']}** ({best['은행']}) · "
                     f"금리 {best['금리범위']} · 한도 {best['최대한도']:,}원"
                 )
-                # [디벨롭: 다기준 랭킹] 최저금리 단일 기준 대신 금리·승인여유·중도상환수수료를
+                # 최저금리 단일 기준 대신 금리·승인여유·중도상환수수료를
                 #   함께 반영한 상위 3개 랭킹을 비교표로 시현(§docs C-2).
                 if len(screen.get("추천후보", [])) > 1:
                     with st.expander("대안 상품 비교 (상위 3위 · 금리+승인여유+중도상환 기준)"):
@@ -508,12 +508,12 @@ def _render_result(out: dict, screen: dict = None):
                 mime="text/plain",
             )
         else:
-            # [디벨롭 v2: C-3] 키 없이 결정적 심사만 돌린 경우 — 위 STEP 2가 판정을 이미 보여준다.
+            # 키 없이 결정적 심사만 돌린 경우 — 위 STEP 2가 판정을 이미 보여준다.
             st.info("LLM 안내문은 사이드바에 **OpenAI 키**를 입력하면 생성됩니다. "
                     "(현재는 키 없이 **결정적 심사 결과**만 표시)")
 
 
-# [디벨롭 v2: C-3] 하이브리드 입력 — 자유서술을 파싱해 구조화 폼을 채우고, 폼을 진실의 원천으로 삼는다.
+# 하이브리드 입력 — 자유서술을 파싱해 구조화 폼을 채우고, 폼을 진실의 원천으로 삼는다.
 JOB_OPTIONS = ["제한없음", "정규직", "계약직"]
 
 
@@ -562,7 +562,7 @@ def _reset_input():
         st.session_state.pop(k, None)
 
 
-# [디벨롭: 무토큰 데모] 사전 녹화된 결과 로더(캐시) — 방문자가 키·토큰 없이 결과를 열람.
+# 사전 녹화된 결과 로더(캐시) — 방문자가 키·토큰 없이 결과를 열람.
 @st.cache_data(show_spinner=False)
 def _demo_fixtures():
     return core.load_demo_fixtures()
@@ -580,7 +580,7 @@ def _load_demo(index: int):
         st.session_state.last_screen = None  # 데모는 픽스처 파싱에서 screen 재계산
 
 
-# [디벨롭: 비용 보호장치] 방문자가 자기 키를 쓰더라도 무제한 호출로 지갑이 새지 않도록
+# 방문자가 자기 키를 쓰더라도 무제한 호출로 지갑이 새지 않도록
 #   하는 상한(§docs 개선계획 C-4). 공개 데모 기준의 보수적 기본값.
 MAX_INPUT_CHARS = 2000        # 입력 길이 상한 → 토큰 폭증 차단
 MAX_RUNS_PER_SESSION = 10     # 세션당 실제 실행(LLM) 횟수 상한
@@ -590,7 +590,7 @@ COOLDOWN_SEC = 5              # 연속 실행 최소 간격(쿨다운)
 def _effective_api_key():
     """이 세션에서 실제 파이프라인 실행에 쓸 키를 결정한다.
     우선순위: 방문자가 사이드바에 입력한 키(세션 메모리) > 서버 환경변수(.env/secrets).
-    [디벨롭: 방문자 키] 방문자 키는 session_state에만 두고 os.environ에 넣지 않는다
+    방문자 키는 session_state에만 두고 os.environ에 넣지 않는다
     (공유 프로세스에서 타 방문자에게 새지 않도록). 없으면 None."""
     visitor = (st.session_state.get("visitor_key") or "").strip()
     if visitor:
@@ -612,7 +612,7 @@ def main():
         st.session_state.customer_input = ""
 
     with st.sidebar:
-        # [디벨롭: 방문자 키] 공개 데모용 — 방문자가 자기 OpenAI 키로 직접 실행.
+        # 공개 데모용 — 방문자가 자기 OpenAI 키로 직접 실행.
         #   키는 이 세션 메모리에만 보관되고 저장/전송되지 않는다.
         st.text_input(
             "OpenAI API 키 (직접 실행용)", key="visitor_key", type="password",
@@ -634,7 +634,7 @@ def main():
                 on_click=_fill_input, args=(tc["input"],),
             )
 
-        # [디벨롭: 무토큰 데모] 키가 없는 방문자도 '입력 → 실제 3-Agent 출력'을
+        # 키가 없는 방문자도 '입력 → 실제 3-Agent 출력'을
         #   토큰 소모 0으로 볼 수 있는 사전 녹화 결과 버튼.
         demo_cases = _demo_fixtures().get("cases", [])
         if demo_cases:
@@ -646,7 +646,7 @@ def main():
                     on_click=_load_demo, args=(i,),
                 )
 
-    # [디벨롭: 방문자 키] 실제 실행에 쓸 키(방문자 키 우선, 없으면 서버 키). 데모는 키와 무관.
+    # 실제 실행에 쓸 키(방문자 키 우선, 없으면 서버 키). 데모는 키와 무관.
     api_key = _effective_api_key()
     if not api_key:
         st.info(
@@ -654,7 +654,7 @@ def main():
             "키가 없어도 사이드바의 **📽️ 토큰 없이 데모 보기**로 실제 결과를 볼 수 있습니다."
         )
 
-    # [디벨롭 v2: C-3] 하이브리드 입력: ①자유서술 → ②'채우기'로 폼 자동채움 → ③부족분 보완 → ④폼으로 제출.
+    # 하이브리드 입력: ①자유서술 → ②'채우기'로 폼 자동채움 → ③부족분 보완 → ④폼으로 제출.
     with st.container(border=True):
         st.markdown("<div class='card-eyebrow'>1. 자유 서술 (선택)</div>", unsafe_allow_html=True)
         st.text_area(
@@ -724,7 +724,7 @@ def main():
                     st.code(str(e))
 
     if st.session_state.get("last_result"):
-        # [디벨롭: 무토큰 데모] 사전 녹화 결과일 때 명확히 고지(실제 실행과 구분).
+        # 사전 녹화 결과일 때 명확히 고지(실제 실행과 구분).
         if st.session_state.get("is_demo"):
             fx = _demo_fixtures()
             st.info(

@@ -8,7 +8,7 @@ def test_products_loaded():
 
 
 def test_new_ranking_columns_present():
-    # [디벨롭: 다기준 랭킹] FSS 공시 미러 컬럼이 모두 로드되는지
+    # FSS 공시 미러 컬럼이 모두 로드되는지
     for p in core.PRODUCTS:
         assert p["상환방식"] in ("원리금균등", "만기일시")
         assert p["금리방식"] in ("고정", "변동")
