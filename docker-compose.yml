@@ -66,6 +66,35 @@ services:
           cpus: "0.50"
           memory: 512M
 
+  worker:
+    build:
+      context: .
+    command:
+      - python
+      - -m
+      - loan_agent.worker
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-loan_suitability}
+    env_file:
+      - path: .env
+        required: false
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777
+    # 호스트에 포트를 열지 않는다. 들어오는 요청을 받지 않고 DB만 폴링하므로
+    # 열어 둘 이유가 없고, 열면 공격 표면만 늘어난다.
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *service-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
 
   postgres:
     image: postgres:16-alpine

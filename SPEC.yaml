@@ -112,6 +112,25 @@ exclude:
     reason: FastAPI-generated OpenAPI document; not spec-managed
 
 # ---------------------------------------------------------------------------
+# Non-HTTP surfaces — the gate cannot diff these, so they are recorded for humans.
+#
+#   explanation worker   `python -m loan_agent.worker`, one compose service.
+#       Claims explanation_run(PENDING) with FOR UPDATE SKIP LOCKED, runs the
+#       3-Agent pipeline, writes the result, model/prompt versions, latency and
+#       tokens, scores it with the existing Eval, then transitions the run and
+#       the assessment. Added 2026-08-28 (ADR-023) because R7 — "every
+#       explanation attempt stays inspectable, model and prompt version
+#       included" — cannot be satisfied without an executor: nothing in the
+#       repository moved a run out of PENDING, so three of the four assessment
+#       states were unreachable and the audit columns stayed empty.
+#
+#       This is a design gap being filled, not a scope expansion. ADR-003
+#       already stated that execution belongs to a separate runner, and T1 #7
+#       called the PENDING row an outbox — an outbox with no consumer is just
+#       a table nobody reads.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
 # Deliberately NOT in this spec — recording the absence so it is a decision,
 # not an oversight. Adding any of these requires /design §5.
 #
