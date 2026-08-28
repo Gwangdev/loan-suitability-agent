@@ -591,6 +591,54 @@ def b_test_coverage_code_roots(d):
        'def test_list():\n    assert client.get("/api/orders").status_code == 200\n')
 
 
+
+def b_test_coverage_external_tests_dir(d):
+    """소스 밖 루트 tests/의 테스트는 우리 것이다(T2 반증).
+
+    code_roots는 소스 위치를 말하지 테스트 위치를 말하지 않는다. pkg/ + tests/ 배치가
+    표준이라 code_roots로만 거르면 전부 걸러져, 실제로 검증된 항목이 미검출로 보고된다.
+    남의 테스트(자기 프로젝트 폴더 안)와는 루트의 관례적 테스트 디렉터리인지로 가른다.
+    """
+    _w(d, "SPEC.yaml",
+       'version: 1\ncode_roots:\n  - app\nendpoints:\n  - GET /api/orders\n')
+    _w(d, "app/api.py",
+       '@router.get("/api/orders")\ndef list_orders():\n    return svc.list()\n')
+    _w(d, "tests/test_orders.py",
+       'def test_list():\n    assert client.get("/api/orders").status_code == 200\n')
+
+
+def b_test_coverage_aligned_spec(d):
+    """명세를 정렬용 공백으로 맞춰 써도 경로가 어긋나지 않는다(T2 반증).
+
+    `GET    /api/orders`처럼 열을 맞추는 표기가 흔한데, 메서드와 경로를 한 칸만 끊으면
+    남은 공백이 경로 앞에 붙어 어떤 테스트와도 일치하지 않는다.
+    """
+    _w(d, "SPEC.yaml",
+       'version: 1\nendpoints:\n  - GET    /api/orders\n  - POST   /api/orders\n')
+    _w(d, "src/api.py",
+       '@router.get("/api/orders")\ndef list_orders():\n    return svc.list()\n'
+       '@router.post("/api/orders")\ndef create_order():\n    return svc.create()\n')
+    _w(d, "tests/test_orders.py",
+       'def test_list():\n    client.get("/api/orders")\n'
+       'def test_create():\n    client.post("/api/orders")\n')
+
+
+def b_health_live_ready_pair(d):
+    """liveness가 정적인 것은 readiness가 함께 있으면 결함이 아니다(I3 반증).
+
+    둘은 서로 다른 질문에 답한다. liveness가 의존 자원을 건드리면 readiness와 책임이
+    겹치므로, 나눈 구성에서 정적 liveness는 설계이지 누락이 아니다.
+    """
+    _w(d, "app/health.py",
+       '@router.get("/health/live")\n'
+       'def live():\n    return {"status": "alive"}\n'
+       '\n'
+       '@router.get("/health/ready")\n'
+       'def ready():\n'
+       '    with engine.connect() as conn:\n'
+       '        conn.execute(text("SELECT 1"))\n'
+       '    return {"status": "ready"}\n')
+
 def _spec_project(d, test_ok=True, extra_src=""):
     _w(d, "SPEC.yaml",
        'version: 1\ntest_command: "python3 -m unittest discover -s tests -q"\n'
@@ -1141,6 +1189,9 @@ CASES = [
     ("커밋: test_command 부재", b_commit_no_testcmd,     ("V1",),        (),               False, ("--commit",)),
     ("X1 반증: 소스의 함수 대입", b_secret_bare_in_source_ok, (),        ("X1",),          False),
     ("커밋: 과거 문체 커밋 비차단", b_style_commit,          ("G3",),        (),               False, ("--commit",)),
+    ("T2 반증: 루트 tests/",     b_test_coverage_external_tests_dir, (),  ("T2",),          False),
+    ("T2 반증: 정렬 공백 명세",  b_test_coverage_aligned_spec,       (),  ("T2",),          False),
+    ("I3 반증: live/ready 쌍",   b_health_live_ready_pair,           (),  ("I3",),          False),
 ]
 
 for row in CASES:

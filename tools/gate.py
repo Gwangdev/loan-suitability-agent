@@ -871,6 +871,18 @@ def check_spec_test_coverage():
     code_roots = _code_roots(raw)
     tests = [p for p in all_tests
              if _under_code_roots(os.path.relpath(p, ROOT), code_roots)]
+    # code_roots는 「우리 소스가 어디 있는가」이지 「우리 테스트가 어디 있는가」가 아니다.
+    # pkg/ + tests/ 처럼 테스트를 소스 밖에 두는 배치가 표준이라, 이 필터만 걸면 전부
+    # 걸러져 blob이 비고 실제로 검증된 항목까지 미검출로 보고된다.
+    #
+    # 그렇다고 전부 받아들이면 원래 막으려던 미탐이 돌아온다 — 예제·채점 픽스처가
+    # 자기 소스 트리 안에 테스트를 두고 우리 명세와 같은 경로 문자열을 담는 경우다.
+    # 둘을 가르는 것은 「저장소 루트의 관례적 테스트 디렉터리인가」이다. 우리 테스트는
+    # 루트의 tests/에 있고, 남의 테스트는 그 프로젝트 폴더 안에 있다.
+    if not tests:
+        tests = [p for p in all_tests
+                 if os.path.relpath(p, ROOT).split(os.sep)[0].lower()
+                 in ("tests", "test", "spec", "specs")]
     blob = "\n".join(open(p, encoding="utf-8", errors="ignore").read() for p in tests)
     # 경로 변수는 테스트에서 실제 값으로 바뀌므로 변수를 제거하고 남는 리터럴 조각을
     # 전부 요구한다. 변수 앞까지만 자르면 조각이 부모 컬렉션으로 줄어들어,
@@ -880,7 +892,10 @@ def check_spec_test_coverage():
     #   GET /api/customers/{id}/orders → ["/api/customers/", "/orders"]
     missing = []
     for norm, disp in sorted(spec.items()):
-        p_only = disp.split(" ", 1)[1] if " " in disp else disp
+        # 메서드와 경로 사이를 정렬용으로 여러 칸 띄우는 표기(`GET    /health/live`)가
+        # 흔하다. 한 칸만 끊으면 남은 공백이 경로 앞에 붙어 어떤 테스트와도 일치하지
+        # 않으므로, 실제로 검증된 항목까지 미검출로 보고된다. 공백 개수와 무관하게 끊는다.
+        p_only = disp.split(None, 1)[1] if " " in disp else disp
         frags = [f for f in re.split(r"\{[^}]*\}|<[^>]*>", p_only) if len(f) > 1]
         if frags and not all(f in blob for f in frags):
             missing.append(disp)
@@ -1493,6 +1508,10 @@ def check_infra_compose():
 HEALTH_ROUTE = re.compile(
     r'@[\w.]+\.(?:route|get)\s*\(\s*[fr]?["\']([^"\']*)["\']')
 HEALTH_PATH = re.compile(r"(?i)(health|healthz|readi|ready|live)")
+# liveness와 readiness를 가르는 이름. 둘을 나눈 구성에서는 서로 다른 질문에 답하므로
+# 같은 기준으로 판정하면 안 된다.
+LIVENESS_PATH = re.compile(r"(?i)(live|liveness|healthz)$")
+READINESS_PATH = re.compile(r"(?i)(readi|ready)")
 # 의존 자원을 실제로 건드렸다는 흔적. 하나라도 있으면 정적 응답이 아니다.
 DEP_CALL = re.compile(
     r"(?i)\b(cursor|execute|conn|connection|session|engine|ping|redis|client|"
@@ -1505,7 +1524,7 @@ def check_health_endpoint():
     다른 언어까지 넓히면 본문 경계를 정확히 잡지 못해 오탐이 난다. 검사하지 못하는
     스택은 `reference/insights/backend-hardening.md` §5가 사람 판단으로 맡는다.
     """
-    flat = []
+    flat, checked_paths = [], []
     for rel, p in _security_targets():
         if not rel.endswith(".py"):
             continue
@@ -1529,7 +1548,17 @@ def check_health_endpoint():
                 if started:
                     body.append(nxt)
             if body and not DEP_CALL.search("\n".join(body)):
-                flat.append(f"{rel}:{i + 1} {m.group(1)}")
+                flat.append((m.group(1), f"{rel}:{i + 1} {m.group(1)}"))
+            else:
+                checked_paths.append(m.group(1))
+    # liveness와 readiness를 나눈 구성에서는 liveness가 정적인 것이 정상이다. 프로세스
+    # 생존만 답해야 하고 의존 자원을 건드리면 readiness와 책임이 겹친다. 그러므로 실제로
+    # 의존 자원을 확인하는 readiness가 함께 있으면 정적 liveness는 지적 대상이 아니다.
+    # 나누지 않은 단일 헬스가 정적인 경우는 그대로 잡는다 — 그때는 확인할 자리가 없다.
+    if any(LIVENESS_PATH.search(p) for p, _ in flat) and \
+            any(READINESS_PATH.search(p) for p in checked_paths):
+        flat = [(p, s) for p, s in flat if not LIVENESS_PATH.search(p)]
+    flat = [s for _, s in flat]
     if flat:
         add(I_LEVEL, "I3", f"{len(flat)} health endpoint(s) return a static response",
             "\n".join("    " + s for s in flat[:8])
