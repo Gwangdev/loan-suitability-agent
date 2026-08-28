@@ -14,6 +14,7 @@ Streamlit 기본 크롬(햄버거 메뉴·헤더·"Made with Streamlit" 푸터)�
 실제 제품 웹앱처럼 보이도록 히어로·카드·푸터 구조로 재구성했다.
 """
 import asyncio
+from decimal import Decimal
 import json
 import os
 import queue
@@ -50,6 +51,11 @@ from loan_agent import core  # noqa: E402  (secrets 반영 이후에 import)
 # Compose에서는 서비스 이름 app으로, 로컬에서는 같은 포트의 Uvicorn으로 접속한다. 화면이
 # 판정을 직접 계산하지 않고 이 접속점만 알게 해야 UI → API → DB 경계가 실제 요청 경로가 된다.
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+
+TOKEN_INPUT_USD_PER_MILLION = Decimal("0.15")
+TOKEN_OUTPUT_USD_PER_MILLION = Decimal("0.60")
+TOKEN_PRICE_EFFECTIVE_DATE = "2026-08-28"
+TOKEN_PRICE_SOURCE = "https://developers.openai.com/api/docs/models/gpt-4o-mini"
 
 st.set_page_config(
     page_title="대출 적합성 심사 | 데모", page_icon="🏦", layout="wide",
@@ -430,6 +436,41 @@ def _run_pipeline(customer_input: str, api_key: str = None) -> dict:
     return outcome["result"]
 
 
+def _usage_value(usage, field: str):
+    if isinstance(usage, dict):
+        return usage.get(field)
+    return getattr(usage, field, None)
+
+
+def _usage_cost_usd(usage):
+    input_tokens = _usage_value(usage, "prompt_tokens")
+    output_tokens = _usage_value(usage, "completion_tokens")
+    if input_tokens is None or output_tokens is None:
+        return None
+    return (
+        Decimal(str(input_tokens)) * TOKEN_INPUT_USD_PER_MILLION
+        + Decimal(str(output_tokens)) * TOKEN_OUTPUT_USD_PER_MILLION
+    ) / Decimal(1_000_000)
+
+
+def _render_usage_cost(out: dict):
+    usage = out.get("usage")
+    cost = _usage_cost_usd(usage)
+    if cost is None:
+        return
+    input_tokens = _usage_value(usage, "prompt_tokens")
+    output_tokens = _usage_value(usage, "completion_tokens")
+    st.caption(
+        f"이번 3-Agent 실행 토큰: 입력 {input_tokens:,} · 출력 {output_tokens:,} · "
+        f"추정 API 비용 ${cost:.6f}"
+    )
+    st.caption(
+        f"단가 기준일 {TOKEN_PRICE_EFFECTIVE_DATE} · 입력 ${TOKEN_INPUT_USD_PER_MILLION}/1M · "
+        f"출력 ${TOKEN_OUTPUT_USD_PER_MILLION}/1M · "
+        f"[공식 모델 문서]({TOKEN_PRICE_SOURCE}) · 캐시 할인 미반영"
+    )
+
+
 def _render_result(out: dict, screen: dict = None):
     # screen을 인자로 받으면(구조화 폼 기준 결정적 판정) 그것을 권위값으로 쓴다.
     #   → 화면 배지·적격상품이 LLM 재파싱이 아니라 '사용자가 확정한 구조화 입력'과 일치(A1 이중경로 해소).
@@ -514,6 +555,7 @@ def _render_result(out: dict, screen: dict = None):
                 file_name="대출심사_안내문.txt",
                 mime="text/plain",
             )
+            _render_usage_cost(out)
         else:
             # 키 없이 결정적 심사만 돌린 경우 — 위 STEP 2가 판정을 이미 보여준다.
             st.info("LLM 안내문은 사이드바에 **OpenAI 키**를 입력하면 생성됩니다. "

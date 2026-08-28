@@ -46,3 +46,9 @@ def test_submit_assessment_reuses_the_key_for_the_same_confirmed_form(monkeypatc
     app._submit_assessment(customer)
 
     assert keys[0] == keys[1]
+
+
+def test_usage_cost_uses_input_and_output_token_rates():
+    cost = app._usage_cost_usd({"prompt_tokens": 1_000, "completion_tokens": 500})
+
+    assert cost == app.Decimal("0.00045")
