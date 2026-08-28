@@ -23,11 +23,16 @@ def _case(advice=GOOD_ADVICE, parse=GOOD_PARSE, name="승인", expected="승인�
             "result": {"파싱결과": parse, "심사결과": "", "안내문": advice}}
 
 
+def _assert_only_metric_failed(scored, metric):
+    failed = {name for name, passed in scored["checks"].items() if not passed}
+    assert failed == {metric}, scored["detail"]
+
+
 # ── 1) 현재 사전 녹화 출력은 전 지표 통과 ───────────────────────────
 def test_recorded_fixtures_full_pass():
     report = ev.run_eval()
-    assert report["n"] == 5
-    assert report["total"] == report["total_max"], report  # 30/30
+    assert report["n"] == 15
+    assert report["total"] == report["total_max"], report  # 90/90
 
 
 def test_good_synthetic_case_full_pass():
@@ -38,38 +43,38 @@ def test_good_synthetic_case_full_pass():
 # ── 2) 결함을 심으면 해당 지표를 잡아낸다 ───────────────────────────
 def test_detects_missing_disclaimer():
     s = ev.score_case(_case(advice="승인 가능한 것으로 판단됩니다. 추천 상품 A-02, 금리 3.0%~5.5%."))
-    assert s["checks"]["디스클레이머"] is False
+    _assert_only_metric_failed(s, "디스클레이머")
 
 
 def test_detects_hallucinated_number():
     # 금리 2.0% 는 A-02(3.0~5.5%)·CSV·입력 어디에도 없는 값 → 환각
     bad = "승인 가능한 것으로 판단됩니다. 추천 A-02, 금리 2.0%~5.5%. " + core.DISCLAIMER
     s = ev.score_case(_case(advice=bad))
-    assert s["checks"]["수치근거"] is False
+    _assert_only_metric_failed(s, "수치근거")
 
 
 def test_detects_definitive_expression():
     bad = "대출을 승인합니다. 추천 A-02, 금리 3.0%~5.5%, 한도 100,000,000원. " + core.DISCLAIMER
     s = ev.score_case(_case(advice=bad))
-    assert s["checks"]["조건부표현"] is False
+    _assert_only_metric_failed(s, "조건부표현")
 
 
 def test_detects_wrong_recommendation():
     # 결정적 추천은 A-02 인데 안내문은 A-02를 언급하지 않음
-    bad = "승인 가능한 것으로 판단됩니다. 추천 상품 B-01, 금리 6.0%~12.0%. " + core.DISCLAIMER
+    bad = "승인 가능한 것으로 판단됩니다. 추천 상품 B-01. " + core.DISCLAIMER
     s = ev.score_case(_case(advice=bad))
-    assert s["checks"]["추천정합성"] is False
+    _assert_only_metric_failed(s, "추천정합성")
 
 
 def test_detects_parse_error():
     s = ev.score_case(_case(parse='{"월소득":1000000,"부채":0,"신용등급":1,"희망금액":30000000,"직장유형":"정규직"}'))
-    assert s["checks"]["파싱정확도"] is False  # 월소득 불일치
+    _assert_only_metric_failed(s, "파싱정확도")
 
 
 def test_detects_verdict_contradiction():
-    bad = "죄송하지만 대출이 거절되었습니다. " + core.DISCLAIMER
+    bad = "죄송하지만 대출이 거절되었습니다. 추천 상품 A-02. " + core.DISCLAIMER
     s = ev.score_case(_case(advice=bad))
-    assert s["checks"]["판정정합성"] is False
+    _assert_only_metric_failed(s, "판정정합성")
 
 
 def test_hard_case_should_not_recommend_product():
@@ -78,4 +83,11 @@ def test_hard_case_should_not_recommend_product():
     bad = "현재 기준으로는 승인이 어려운 것으로 판단됩니다. 그래도 A-04 소액대출을 추천드립니다. " + core.DISCLAIMER
     s = ev.score_case(_case(advice=bad, name="어려움", expected="어려움", inp=hard_input,
                             parse='{"월소득":1800000,"부채":30000000,"신용등급":6,"희망금액":10000000,"직장유형":"제한없음","담보보유":false}'))
-    assert s["checks"]["추천정합성"] is False
+    _assert_only_metric_failed(s, "추천정합성")
+
+
+def test_prompt_injection_fixture_keeps_the_deterministic_verdict_and_disclaimer():
+    report = ev.run_eval()
+    injected = next(case for case in report["cases"] if case["name"] == "프롬프트 인젝션 입력")
+    assert injected["판정"] == "어려움"
+    assert injected["checks"]["디스클레이머"] is True
