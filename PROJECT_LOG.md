@@ -522,7 +522,7 @@ python3.11 tools/gate.py .    →  BLOCK 1 · WARN 9
 해소할 수 없다는 기존 판단을 바꾸지 않는다. 기준선의 WARN 10건에서 9건으로 줄었고 새
 BLOCK·WARN은 없다.
 
-### Track C — 실행 경로·측정 증거 (진행 중, 2026-08-28)
+### Track C — 실행 경로·측정 증거 (측정 완료, C4는 Docker 부재로 미실행, 2026-08-28)
 
 **C1.** Streamlit의 확정 심사는 `API_BASE_URL`의 `POST /api/v1/assessments`를 호출하고,
 구조화 폼을 정규화한 UUIDv5를 `Idempotency-Key`로 보낸다. 같은 확인 입력은 같은 키를 쓰므로
@@ -530,35 +530,97 @@ BLOCK·WARN은 없다.
 않는다. 녹화 데모와 규칙 기반 폼 채우기는 키·API·DB 없이 동작해야 하므로 `core` 직접 호출을
 유지한다. 데모는 녹화 파일을 읽고, 폼 채우기는 아직 저장하지 않는 후보만 만들기 때문이다.
 
-**C2/C3/C4.** Docker 데몬이 실행 중이 아니어서 `docker compose up`과 컨테이너 inspect, 60초
-부하 구간, 10,000건 인덱스 전후 비교를 실행하지 못했다. `docker compose config`의 선언값은
-런타임 강제 증거가 아니므로 리소스 상한 채택 여부도 확정하지 않는다. 측정값을 만들지 않고
-환경 부재를 결과로 남긴다.
+**C1 — 인덱스 전후 실측.** Homebrew PostgreSQL 17.10, macOS 26.5.2 arm64, 논리 CPU 10개에서
+합성 `assessment_case` 10,000건을 고정 UUIDv5·고정 시각·4개 상태 순환으로 생성했다. 그중
+`SCREENED`는 2,500건이다. 측정 쿼리는 `status = 'SCREENED'` 필터, `created_at DESC, id DESC`
+정렬, `LIMIT 100`이다.
 
-**C5.** `gpt-4o-mini`의 기준 단가는 2026-08-28 공식 모델 문서상 입력 1M 토큰당 $0.15,
-출력 1M 토큰당 $0.60이다. 비용 계산은 `(입력 토큰 × 0.15 + 출력 토큰 × 0.60) / 1,000,000`
-달러이며, 월 비용은 요청당 비용에 월 요청 수를 곱한다. 실제 설명 실행 토큰 기록이 아직 없어
-평균 요청 비용을 수치로 단정하지 않는다. 출처: OpenAI API 모델 문서
-<https://developers.openai.com/api/docs/models/gpt-4o-mini>.
+| 상태 | 실행계획 | 실행시간 |
+|---|---|---:|
+| `0002` 적용 전 | `Seq Scan` 10,000건 → `Sort` | 0.771 ms |
+| `0002` 적용 후 기본 플래너 | `Index Scan` · `ix_assessment_case_cursor`, 필터 후 299건 제거 | 0.048 ms |
+| `0002` 후 커서 인덱스를 일시 제거 | `Index Only Scan` · `ix_assessment_case_status_cursor`, `Index Cond`로 상태 적용 | 0.042 ms |
+| `0002` 후 상태 인덱스를 일시 제거 | `Index Scan` · `ix_assessment_case_cursor`, 필터 후 299건 제거 | 0.036 ms |
+
+일반 플랜에서는 정렬을 보존하는 인덱스 스캔으로 바뀌고 실행시간이 줄었다. 다만 이 데이터
+분포와 `LIMIT 100`에서는 플래너가 상태 선행 복합 인덱스보다 `(created_at, id)` 인덱스를
+선택했다. 상태 선행 인덱스만 남긴 플랜은 `Index Cond`와 정렬 보존을 보여 컬럼 순서의
+구조적 근거는 확인했지만, 실행시간은 커서 인덱스 단독 플랜보다 0.006ms 느렸다. 따라서
+「등호 조건을 앞에 둔 인덱스가 항상 더 빠르다」고 일반화할 수 없고, 이 실험은 기존
+컬럼 순서의 설계 가능성을 보인 정도다. 마이그레이션 파일은 합치지 않았고, 측정 종료 후
+head로 되돌렸다.
+
+**C2 — 결정적 경로 부하.** 같은 PostgreSQL 17.10 테스트 DB를 base에서 head로 초기화한 뒤,
+단일 Uvicorn 프로세스의 `POST /api/v1/assessments`만 측정했다. 요청 본문은 고정된 유효
+구조화 입력이고 모든 요청은 새 UUIDv4 `Idempotency-Key`를 사용했다. 서버는 macOS 26.5.2
+arm64, 논리 CPU 10개, 앱 풀 `pool_size=5`, `max_overflow=5`, `pool_timeout=5초`,
+`statement_timeout=5초`였다.
+
+| 동시성 | 요청 수 | 처리량(req/s) | p50 | p95 | p99 | 오류율 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 10 | 32,877 | 547.865 | 17.67 ms | 23.33 ms | 31.74 ms | 0% |
+| 50 | 31,185 | 519.124 | 88.98 ms | 177.13 ms | 232.68 ms | 0% |
+| 100 | 31,717 | 527.323 | 181.63 ms | 272.13 ms | 325.78 ms | 0% |
+
+각 구간은 60초였다. DB는 본 측정 전에 빈 head 상태로 초기화했다. 출력 단계에서 실패한
+초기 2초 smoke 시도도 요청 918건을 남겼고, 수정 후 smoke 2초 동시성 2에서 964건을
+확인한 뒤 본 측정을 시작했다. 본 측정 3구간의 합계는 95,779건이며, 비용 조회 시점의
+DB 누적은 97,661건이었다. 동시성 50부터 지연이 크게 늘고 처리량은 약 519~547 req/s에서
+평탄해졌지만, 커넥션 풀 대기·타임아웃 오류는 관찰되지 않았다. 이 조건에서는 풀이 먼저
+고갈됐다는 증거가 없고, 트랜잭션 밖에 LLM을 둔 설계가 커넥션 점유를 짧게 만든다는 방향은
+지지된다. 다만 풀 점유율·CPU 프로파일을 측정하지 않았으므로 포화 원인을 특정하거나
+ADR-022의 필요 커넥션 1개를 정확히 증명하지는 않는다. 절대값은 이 실행 환경과 데이터
+건수에 한정한다.
+
+**C3 — 토큰 비용.** 비용 상수는 `loan_agent/app.py`와 `tests/load/measure_track_c.py`의
+`TOKEN_INPUT_USD_PER_MILLION`·`TOKEN_OUTPUT_USD_PER_MILLION`으로 분리했다. 2026-08-28
+공식 모델 문서 기준 `gpt-4o-mini` 입력은 1M 토큰당 $0.15, 출력은 $0.60이다. 캐시 입력
+할인은 모델링하지 않았다. 출처: [OpenAI 공식 모델 문서](https://developers.openai.com/api/docs/models/gpt-4o-mini).
+
+측정 당시 DB에는 `explanation_run` 97,661건이 있었지만 입력·출력 토큰이 모두 기록된 행은
+0건이었다. 따라서 운영 평균을 단정하지 않는다. 대신 2026-07-27 생성 사전 녹화 5개에
+남은 누적 `usage_metrics` 스냅샷의 회차별 차분을 계산했다. 입력 평균 27,653.4토큰,
+출력 평균 4,762.2토큰, 요청당 추정 비용 $0.00700533, 월 10,000건 추정 $70.0533이다.
+이 관측치의 `successful_requests` 차분은 파이프라인마다 15건이었다. 세 Agent 단계가
+곧 세 번의 제공자 호출이라는 뜻은 아니며, ReAct 도구 재조회와 프레임워크 호출이 포함된
+실제 파이프라인 비용을 합산한 값으로만 해석한다. 라이브 결과 화면과 README에 토큰·요청당
+비용·단가 기준일을 노출했다.
+
+**C4 — 컨테이너 런타임.** Docker CLI 29.6.1의 `desktop-linux` 컨텍스트는 확인됐지만,
+`docker info`가 `Cannot connect to the Docker daemon at unix:///Users/gwangsik/.docker/run/docker.sock`
+로 실패했다. `docker compose config`에서는 서비스별 `cpus: 0.5`, `memory: 536870912`와
+frontend/backend 네트워크를 확인했지만 이는 런타임 강제 증거가 아니다. 그러므로 컨테이너
+inspect, 화면 제출의 `ui → app → postgres` 실제 경로, 워커의 상태 전이를 실행하지 않았고,
+리소스 상한 채택 여부도 확정하지 않는다.
 
 **C6.** README에 합성 데이터, 단순화된 DSR, Eval 커버리지, 실시간 제공자 장애 미검증을 요약하고
 리스크 대장으로 연결했다. 통과율만으로 안전성이나 실서비스 적합성을 주장하지 않는다.
 
-```
-pytest                     →  80 passed, 1 warning
-python3.11 tools/gate.py . →  BLOCK 1 · WARN 8
-```
-
-`D2`가 해소되어 기준선 WARN 9에서 8로 줄었다. 남은 BLOCK은 과거 이력 `G3` 하나이며,
-이번 변경으로 새 BLOCK·WARN은 없다.
-
 ## 테스트 결과 · 증거 (출처 포함)
-- (없음)
+- C1 인덱스 측정: `tests/load/measure_track_c.py indexes --rows 10000`
+- C2 부하 측정: `tests/load/measure_api_load.py --duration 60 --concurrency 10 50 100`
+- C3 비용 측정: `tests/load/measure_track_c.py cost --monthly-requests 10000`
+- C4 런타임 확인: `docker info`, `docker compose config`
 
 ## 검증 결과 (`/verify`)
 > 항목별 판정·근거 전문. `PROJECT_STATE.md`에는 판정값만 남긴다.
 
-- (미실행)
+```text
+pytest
+89 passed, 1 warning in 2.33s
+
+python3.11 tools/test_gate.py
+91/91 통과
+
+python3.11 tools/gate.py .
+╰─ BLOCK 1 · WARN 9
+```
+
+기준선에 적힌 `pytest 88 passed` 대비 테스트는 비용 계산 회귀 테스트 1건이 늘었다.
+기준선에 적힌 `gate BLOCK 1 · WARN 8`과 달리 현재 HEAD를 변경 없이 임시 복제해 같은
+게이트를 실행해도 `BLOCK 1 · WARN 9`가 나왔다. 따라서 이번 변경으로 게이트 경고가
+증가한 것은 아니며, 기준선 기록과 저장소 실제 HEAD 출력 사이에 WARN 1건의 불일치가
+있다. BLOCK은 기존 커밋 이력 `G3` 하나이고, 새 표면 누락·과잉(`S3`·`S4`)은 0건이다.
 
 ## 뒤집힌 설계 결정
 > `PROJECT_STATE.md`에서 내려온 결정. **무효화한 부속 규격과 그 처리 결과를 함께 적는다.**

@@ -8,7 +8,7 @@
 - **Updated:** 2026-08-28
 - **Harness version:** v9.17
 - **Goal:** Rebuild Loan into **Loan Decision Support — a verifiable loan-consultation decision-support platform**, the single flagship portfolio piece for the 2026 Hanwha Finance Platform-IT application. Submit by 2026-09-18; everything but the SQLD result done by 2026-09-10.
-- **Current step:** Explanation worker added (ADR-023) — it claims PENDING runs with `FOR UPDATE SKIP LOCKED`, records model/prompt versions, tokens and Eval, and moves the run and the assessment. This closed a design gap: nothing had ever moved a run out of PENDING, so three of the four case states were unreachable and the audit columns stayed empty. Track C: the Streamlit deterministic path now goes through the API (C1), README limitations cleared D2 (C6). **Only the container resource-cap check (C2) needs Docker** — load (C3) and index (C4) measurements run against local PostgreSQL and are not blocked. Latest: `pytest` 88 passed; gate `BLOCK 1 · WARN 8`, historical G3 only. Remaining design item: architecture diagram (deferred until code settles).
+- **Current step:** Explanation worker added (ADR-023) — it claims PENDING runs with `FOR UPDATE SKIP LOCKED`, records model/prompt versions, tokens and Eval, and moves the run and the assessment. This closed a design gap: nothing had ever moved a run out of PENDING, so three of the four case states were unreachable and the audit columns stayed empty. Track C measurements are complete for local PostgreSQL: C1 index comparison, C2 deterministic API load, and C3 token-cost model. C4 runtime resource enforcement and container flow remain unverified because the Docker daemon is unavailable. Latest: `pytest` 89 passed; gate `BLOCK 1 · WARN 9`, with the same historical G3 and warning set as HEAD. Remaining design item: architecture diagram (deferred until code settles).
 
 ## Spine (never dilute — user-confirmed)
 
@@ -72,16 +72,14 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…022)**
 
 - **#3** `G3` voice-normalization — clears in the stage-5 doc rewrite
 - **#4** `I3` static `/health` — **resolved (2026-08-28).** `/health/live` (item 1) + `/health/ready` (item 2) landed; ready probes DB + Alembic head. Full text in ledger
-- **#5** `D2` README has no limitations section — clears in the doc rewrite
+- **#5** `D2` README has no limitations section — resolved in the doc rewrite
 - **#6** `P2` commit author email in the 28 pre-rebuild commits — **decided: leave it.** Config already uses the noreply address, so new commits are clean
-- **#8** `C1` why-comments at 33% vs 40% — re-measure after the rebuild
+- **#8** `C1` why-comments — re-measured at 68/197 = 35%; remains observation only
 
 ## Next Action
 
-- `/build` endpoint set is implemented. Items 4–9 use `loan_agent/api/assessments.py` and `tests/test_assessment_followups.py`: R3 read returns decision/version/run/Eval state; R4 uses bounded cursor pagination; R6 only creates PENDING and leaves LLM execution to a worker; R7 excludes unpersisted raw prompts; R5 does not open a DB session; R9 serves recorded fixtures without a key. Checkpoint verified: `pytest` 78 passed, `test_gate` 91/91, gate `BLOCK 1 · WARN 9`; S3/S4 are 0.
-- Still open after the endpoint set: wire `app.py` to the API (3-tier execution path), ADR-016 runtime resource-cap check.
-- Track B landed in this same checkpoint (compose 3-tier + Dockerfile hardening, CI `services: postgres`, Eval expansion to 15 cases with 7 fault injections). Review found 3 defects — CI service port unmapped, conftest skipping on an unreachable DB, a duplicated comment — all fixed here.
-- Gate state (checkpoint-verified): `S0` 0, `S4` 0, `BLOCK 2` — `G3` (past history, not clearable) and `S3` 7 (unimplemented spec items). `T2` now reports 6/9 after two gate fixes. Self-tests 91/91.
+- Endpoint set, Streamlit API path, worker, and local measurement evidence are in place. C1 observed index-plan and timing changes, C2 measured the deterministic path at concurrency 10/50/100 for 60 seconds each, and C3 exposed token cost in the live result screen and README. C4 is blocked by the unavailable Docker daemon; no runtime-cap claim is made.
+- Latest verification: `pytest` 89 passed with 1 warning, `test_gate` 91/91, gate `BLOCK 1 · WARN 9`; S3/S4 are 0. The actual HEAD baseline is also `BLOCK 1 · WARN 9`, although an earlier log entry says WARN 8.
 - Local test DB: `postgresql+psycopg2:///loan_suitability_test` (homebrew postgresql@17). CI uses `services: postgres` with `DATABASE_URL`. Both are real PostgreSQL per ADR-008. `alembic` + `psycopg2-binary` added to `requirements.txt`.
 
 ## Halt Reason
