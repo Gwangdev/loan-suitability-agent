@@ -527,6 +527,23 @@ def b_secret_bare_env(d):
        "      - POSTGRES_PASSWORD=Gg7vQ2mLp0x\n")
 
 
+
+def b_secret_bare_in_source_ok(d):
+    """소스 코드의 `api_key = 함수호출()`은 값이 아니라 식이다(X1 반증).
+
+    따옴표 없는 대입 패턴은 설정·환경 파일의 목록형 환경변수를 잡으려고 만든 것인데,
+    이것을 프로그래밍 언어에까지 적용하면 평범한 대입이 전부 자격증명으로 잡힌다.
+    실제로 정상 코드가 영구 BLOCK된 사례가 있어 대상 확장자를 좁혔다.
+    """
+    _w(d, "src/app.py",
+       "import os\n"
+       "def _effective_api_key():\n"
+       "    return os.environ.get(\"OPENAI_API_KEY\")\n"
+       "def run():\n"
+       "    api_key = _effective_api_key()\n"
+       "    return api_key is not None\n")
+
+
 def b_secret_bare_env_ref_ok(d):
     """반증: 환경변수 참조는 값이 아니다."""
     _w(d, "compose.yaml",
@@ -1122,6 +1139,8 @@ CASES = [
     ("커밋: 미구현은 통과",     b_commit_pending_ok,     ("S3",),        ("S4", "L1", "L2"), False, ("--commit",)),
     ("커밋: 테스트 실패 차단",  b_commit_test_fail,      ("V1",),        (),               True,  ("--commit",)),
     ("커밋: test_command 부재", b_commit_no_testcmd,     ("V1",),        (),               False, ("--commit",)),
+    ("X1 반증: 소스의 함수 대입", b_secret_bare_in_source_ok, (),        ("X1",),          False),
+    ("커밋: 과거 문체 커밋 비차단", b_style_commit,          ("G3",),        (),               False, ("--commit",)),
 ]
 
 for row in CASES:

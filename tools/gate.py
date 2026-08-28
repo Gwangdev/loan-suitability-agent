@@ -220,7 +220,13 @@ def check_history():
 
     style = [s for s in subj if re.search(r"문체|어투|톤.*통일|스타일.*통일|말투", s)]
     if style:
-        add("BLOCK", "G3", "bulk voice-normalization commit found — it erases authorial fingerprint",
+        # 과거 커밋 제목을 보는 항목이라 새 커밋으로는 해소되지 않는다. 커밋 판정에서
+        # 그대로 차단하면 한 번 걸린 저장소가 영구히 NOT READY가 되고, 그러면 게이트
+        # 전체를 무시하게 된다 — S3를 커밋 모드에서 정보로 내린 것과 같은 이유다.
+        # 일반 게이트에서는 BLOCK을 유지한다. 지적 자체는 유효하기 때문이다.
+        add("INFO" if COMMIT_MODE else "BLOCK", "G3",
+            "bulk voice-normalization commit found — it erases authorial fingerprint"
+            + (" — past history, not clearable by this commit" if COMMIT_MODE else ""),
             "\n".join("    " + s for s in style))
 
     # 커밋 주장 vs 실제 diff (제거/삭제를 표방한 커밋)
@@ -1198,6 +1204,12 @@ ASSIGN_SECRET = re.compile(
 ASSIGN_SECRET_BARE = re.compile(
     r"(?i)^\s*-?\s*[\w.]*(pass(?:word|wd)|secret|token|api[_-]?key|access[_-]?key|"
     r"private[_-]?key|client[_-]?secret|auth[_-]?token)\s*=\s*([^\s\"']{8,})\s*$")
+# 따옴표 없는 표기는 설정·환경 파일에서만 값이 박힌 것을 뜻한다. 프로그래밍 언어에서
+# `api_key = get_api_key()`는 평범한 대입이고 우변은 값이 아니라 식이므로, 같은 패턴을
+# 소스 코드에 적용하면 함수 호출·변수 참조가 전부 자격증명으로 잡힌다. 실제로 정상
+# 코드가 영구 BLOCK되는 사례가 나왔다 — 대상 확장자를 표기가 존재하는 자리로 좁힌다.
+BARE_ASSIGN_EXTS = (".yaml", ".yml", ".env", ".properties", ".conf", ".cfg",
+                    ".ini", ".tfvars", ".toml")
 PLACEHOLDER = re.compile(
     r"(?i)(^\s*$|your|example|sample|dummy|placeholder|change[_-]?me|redacted|"
     r"masked|todo|fixme|xxx|\*{3,}|\.\.\.|test|fake|^\$\{|^\{\{|^<|"
@@ -1241,7 +1253,9 @@ def check_secrets():
                 m = rx.search(line)
                 if m:
                     hits[rel].append((i, name, _mask(m.group(0))))
-            m = ASSIGN_SECRET.search(line) or ASSIGN_SECRET_BARE.match(line)
+            m = ASSIGN_SECRET.search(line)
+            if not m and rel.endswith(BARE_ASSIGN_EXTS):
+                m = ASSIGN_SECRET_BARE.match(line)
             if m and not PLACEHOLDER.search(m.group(2)):
                 hits[rel].append((i, f"{m.group(1)} literal", _mask(m.group(2))))
     if hits:
