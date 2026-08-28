@@ -3,11 +3,28 @@
 ## 상황
 
 `loan-suitability-agent` — 대출 상담 의사결정 지원 서비스. FastAPI 모듈러 모놀리스.
-브랜치 `feature/decision-support-rebuild`, HEAD `5368e38` 위에 **항목 3~9의 미커밋 변경**이
-올라가 있다. 그 상태에서 이어간다.
+브랜치 `feature/decision-support-rebuild`, HEAD `356252b`, 커밋 43건. **작업 트리는 깨끗하다.**
 
 **`SPEC.yaml`의 엔드포인트 9개가 전부 구현됐다(`S3`·`S4` 0건).** 남은 것은 표면을 늘리는
 일이 아니라, **이미 한 주장을 증거로 바꾸는 일**이다.
+
+## 코드 배치 — 기능 하나가 파일 하나다
+
+```
+loan_agent/api/__init__.py       라우터 등록만
+loan_agent/api/errors.py         RFC 9457 problem+json — 전 구간 공통
+loan_agent/api/health.py         /health/live · /health/ready
+loan_agent/api/assessments.py    심사 생성·단건조회·목록
+loan_agent/api/explanations.py   설명 재생성·이력 (+ 시도 메타데이터 직렬화)
+loan_agent/api/parsing.py        파싱 미리보기 — DB를 쓰지 않는다
+loan_agent/api/demo.py           녹화 데모 조회 — 키도 DB도 쓰지 않는다
+loan_agent/decision.py           판정 결과를 저장 가능한 형태로 변환 + 버전 확정
+loan_agent/db/                   models · engine · readiness
+```
+
+**의존은 한 방향으로만 흐른다** — 심사가 설명을 가져다 쓰고 그 반대는 없다.
+표면을 추가하는 것이 아니므로 **이 배치를 바꾸지 마라.** 새 파일이 필요하다고 느끼면
+기능이 하나 더 생긴다는 뜻이니 보고해라.
 
 ## 먼저 읽어라 — 내용을 여기 옮겨 적지 않았다. 파일을 직접 열어라
 
@@ -44,7 +61,8 @@ fail**한다(의도된 동작 — 건너뛰면 검증 0건인 채로 통과하�
 ```
 pytest        78 passed
 test_gate     91/91
-gate          BLOCK 1 · WARN 9
+gate          BLOCK 1 · WARN 9        (S3·S4 0건 — 명세와 코드가 일치한다)
+gate --commit COMMIT READY
 ```
 
 `BLOCK 1`은 `G3`(과거 커밋 이력)이며 **이력 재작성 없이는 해소되지 않는다. 판정이 끝난
@@ -60,7 +78,8 @@ API를 한 번도 거치지 않는다.** 구조는 선언돼 있으나 실행 �
 이대로면 「3-tier 보안을 안다」는 주장이 **문서상 사실로만 남는다.** 화면에서 심사를 눌렀을 때
 요청이 실제로 `app` 계층을 지나 DB에 닿아야 그 주장이 증거가 된다.
 
-- `app.py`가 `core.screen_loan`을 직접 부르는 자리를 **`POST /api/v1/assessments` 호출로 교체**한다
+- `app.py`가 `core.screen_loan`을 직접 부르는 자리를 **`POST /api/v1/assessments` 호출로 교체**한다.
+  API는 기능별 모듈로 나뉘어 있으니 호출할 경로는 `SPEC.yaml`에서 확인한다
 - 접속처는 환경변수(`API_BASE_URL` 등)로 받는다. compose에서 서비스 이름으로 닿는다
 - `Idempotency-Key`를 클라이언트가 생성해 보낸다. 같은 입력을 두 번 눌러도 심사가
   하나여야 한다 — **서버가 이미 보장하지만, 화면이 키를 안 보내면 그 보장이 발동하지 않는다**
