@@ -1,4 +1,6 @@
-"""POST /api/v1/assessments — 구조화 입력을 받아 결정적 판정을 한 트랜잭션에 저장한다.
+"""심사 — 생성과 조회.
+
+생성은 구조화 입력을 받아 결정적 판정을 한 트랜잭션에 저장한다.
 
 이 엔드포인트가 관통 논리의 실물이 나오는 자리다. 판정은 결정적 계층이 산출하고
 (`decision.decide` → `core.screen_loan`), LLM은 여기서 부르지 않는다. 대신 설명 작업을
@@ -24,7 +26,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from loan_agent import decision
-from loan_agent import core
+from loan_agent.api import explanations
 from loan_agent.db import engine as db_engine
 from loan_agent.db.models import (
     AssessmentCase,
@@ -55,11 +57,6 @@ class AssessmentRequest(BaseModel):
     employment_type: str = Field(pattern="^(" + "|".join(EMPLOYMENT_TYPES) + ")$")
     collateral_owned: bool = False
 
-
-class ParsingPreviewRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    text: str = Field(min_length=1, max_length=10_000)
 
 
 def _request_hash(payload: AssessmentRequest) -> str:
@@ -183,35 +180,6 @@ def _replay(session, existing: AssessmentCase, request_hash: str, response: Resp
     return _serialize(session, existing.id)
 
 
-def _run_payload(run: ExplanationRun, eval_result=None) -> dict:
-    """설명 시도 메타데이터만 노출한다. 원문 프롬프트는 저장하지도 응답하지도 않는다."""
-    return {
-        "id": str(run.id),
-        "status": run.status,
-        "model_name": run.model_name,
-        "prompt_version": run.prompt_version,
-        "started_at": run.started_at.isoformat() if run.started_at else None,
-        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
-        "latency_ms": run.latency_ms,
-        "input_tokens": run.input_tokens,
-        "output_tokens": run.output_tokens,
-        "error_code": run.error_code,
-        "eval_result": (
-            {
-                "parse_accuracy": eval_result.parse_accuracy,
-                "verdict_consistency": eval_result.verdict_consistency,
-                "disclaimer_present": eval_result.disclaimer_present,
-                "recommendation_consistency": eval_result.recommendation_consistency,
-                "numeric_grounding": eval_result.numeric_grounding,
-                "conditional_language": eval_result.conditional_language,
-                "passed": eval_result.passed,
-                "detail": eval_result.detail,
-            }
-            if eval_result else None
-        ),
-    }
-
-
 def _assessment_detail(session, assessment_id: uuid.UUID) -> dict:
     case = session.get(AssessmentCase, assessment_id)
     if case is None:
@@ -222,14 +190,7 @@ def _assessment_detail(session, assessment_id: uuid.UUID) -> dict:
         .where(Recommendation.assessment_id == assessment_id)
         .order_by(Recommendation.rank)
     ).scalars().all()
-    from loan_agent.db.models import EvalResult
-
-    rows = session.execute(
-        select(ExplanationRun, EvalResult)
-        .outerjoin(EvalResult, EvalResult.explanation_run_id == ExplanationRun.id)
-        .where(ExplanationRun.assessment_id == assessment_id)
-        .order_by(ExplanationRun.started_at.desc().nulls_last(), ExplanationRun.id.desc())
-    ).all()
+    rows = explanations.runs_with_eval(session, assessment_id)
     return {
         "assessment_id": str(case.id),
         "status": case.status,
@@ -246,7 +207,7 @@ def _assessment_detail(session, assessment_id: uuid.UUID) -> dict:
             {"product_code": row.product_code, "rank": row.rank, "eligible": row.eligible}
             for row in recommendations
         ],
-        "explanation_runs": [_run_payload(run, evaluated) for run, evaluated in rows],
+        "explanation_runs": [explanations.run_payload(run, evaluated) for run, evaluated in rows],
     }
 
 
@@ -341,51 +302,3 @@ def list_assessments(
             "next_cursor": _encode_cursor(page[-1].created_at, page[-1].id) if trailing else None,
         }
 
-
-@router.post("/api/v1/assessments/{assessment_id}/explanation-runs", status_code=201)
-def regenerate_explanation(assessment_id: uuid.UUID):
-    sessionmaker = db_engine.get_sessionmaker()
-    try:
-        with sessionmaker.begin() as session:
-            if session.get(AssessmentCase, assessment_id) is None:
-                raise HTTPException(status_code=404, detail="심사를 찾을 수 없습니다.")
-            active = session.scalar(
-                select(ExplanationRun.id)
-                .where(ExplanationRun.assessment_id == assessment_id)
-                .where(ExplanationRun.status.in_(IN_FLIGHT_RUN_STATUSES))
-            )
-            if active is not None:
-                raise HTTPException(status_code=409, detail="진행 중인 설명 실행이 있습니다.")
-            run = ExplanationRun(assessment_id=assessment_id, status="PENDING")
-            session.add(run)
-            session.flush()
-            return {"id": str(run.id), "status": run.status}
-    except IntegrityError as exc:
-        raise HTTPException(status_code=409, detail="진행 중인 설명 실행이 있습니다.") from exc
-
-
-@router.get("/api/v1/assessments/{assessment_id}/explanation-runs")
-def list_explanation_runs(assessment_id: uuid.UUID):
-    with db_engine.get_sessionmaker()() as session:
-        if session.get(AssessmentCase, assessment_id) is None:
-            raise HTTPException(status_code=404, detail="심사를 찾을 수 없습니다.")
-        from loan_agent.db.models import EvalResult
-
-        rows = session.execute(
-            select(ExplanationRun, EvalResult)
-            .outerjoin(EvalResult, EvalResult.explanation_run_id == ExplanationRun.id)
-            .where(ExplanationRun.assessment_id == assessment_id)
-            .order_by(ExplanationRun.started_at.desc().nulls_last(), ExplanationRun.id.desc())
-        ).all()
-        return {"items": [_run_payload(run, evaluated) for run, evaluated in rows]}
-
-
-@router.post("/api/v1/parsing-preview")
-def parsing_preview(payload: ParsingPreviewRequest):
-    candidate = core.rule_based_parse(payload.text)
-    return {"candidate": candidate, "missing_fields": core.missing_required_fields(candidate)}
-
-
-@router.get("/api/v1/demo-cases")
-def demo_cases():
-    return core.load_demo_fixtures()
