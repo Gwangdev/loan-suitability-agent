@@ -1,0 +1,126 @@
+# Public surface spec — never build what is not listed here.
+#
+# Written in /design, frozen during /build. `tools/gate.py` compares this against
+# the endpoints it extracts from the actual code.
+#
+#   in spec, not in code  ->  S3 missing           (BLOCK; INFO in --commit mode)
+#   in code, not in spec  ->  S4 excess            (BLOCK)
+#
+# Path variable names are ignored in the comparison.
+#
+# If this file must change mid-build, go back to /design §5. Growing the spec to
+# match the code turns the spec into a copy of the code, and the diff catches nothing.
+
+version: 1
+
+# Bare `pytest` on purpose: it is what CI runs, and `python3` on a dev machine can
+# resolve to an interpreter that has no project dependencies installed. Options
+# (testpaths, pythonpath, -q) live in pyproject.toml so both paths agree.
+test_command: "pytest"
+
+# The service lives in loan_agent/. `tools/` is the harness and holds no surface.
+code_roots:
+  - loan_agent
+
+# ---------------------------------------------------------------------------
+# Requirement -> endpoint mapping
+#
+# Rule: a requirement with zero endpoints does not belong to this system.
+#       An endpoint with no requirement is deleted.
+#
+#   R1  A consultant submits confirmed structured data and receives a
+#       deterministic suitability decision.              -> POST   /assessments
+#   R2  A duplicate submission never creates a duplicate
+#       assessment (Idempotency-Key + request hash).     -> (header on R1, no own path)
+#   R3  A consultant re-reads one assessment: decision,
+#       explanation state, Eval result, and the rule /
+#       product / model / prompt versions used.          -> GET    /assessments/{id}
+#   R4  A consultant finds past assessments by status
+#       and period.                                      -> GET    /assessments
+#   R5  Free text is turned into structured candidates
+#       without being stored, listing missing fields.    -> POST   /parsing-preview
+#   R6  A failed explanation can be regenerated without
+#       recomputing or losing the decision.              -> POST   /assessments/{id}/explanation-runs
+#   R7  Every explanation attempt stays inspectable
+#       (model, prompt version, latency, tokens, error). -> GET    /assessments/{id}/explanation-runs
+#   R8  WITHDRAWN in design review (2026-08-26). It read "a reviewer can read the
+#       product dataset to check the recommendation against its source" and would
+#       have justified GET /products. It was derived from the existing endpoint,
+#       not from a user scenario — the tell of a post-hoc justification. Auditing
+#       is already satisfied by product_dataset_version stored on the decision,
+#       and single-product lookup is only needed on the LLM tool path, which is
+#       not an HTTP surface. The number is left as a gap on purpose so the removal
+#       stays visible. If it turns out to be needed, re-add it via /design §5.
+#   R9  A visitor without an API key can read pre-recorded
+#       3-Agent output at zero token cost.               -> GET    /demo-cases
+#   R10 An operator can tell "process alive" apart from
+#       "dependencies actually ready".                   -> GET    /health/live
+#                                                           GET    /health/ready
+#
+# Symmetry note (design-review §4): explanation-runs carries both POST and GET.
+# Persisting a run history that cannot be read back is dead data, and R7 is the
+# requirement that makes version tracking (portfolio axis 4) verifiable.
+#
+# Error-code policy — the same class of failure always exits the same way:
+#   422 schema / range validation failed (Pydantic)
+#   409 constraint or state conflict — same Idempotency-Key with a different
+#       request hash, OR a retry requested while a PENDING/RUNNING run exists
+#   404 resource not found
+#   413 request body over the size cap
+#   415 unsupported Content-Type
+#   429 per-session run limit or cooldown
+#   503 upstream LLM provider unavailable
+#   500 internal error, message masked (no stack trace, path, or query in the body)
+#
+# Error body format: RFC 9457 application/problem+json across every path. One
+# shape everywhere so a client never branches on which endpoint failed.
+#
+# Empty collection is a value, not an absence: GET /assessments with no match
+# returns 200 with an empty array, never 404 and never 204. 204 is reserved for
+# bodiless success.
+#
+# List-query limits — the server enforces them, a client-sent value never wins:
+#   limit   default 20, hard max 100
+#   cursor  opaque, encodes (created_at, id); OFFSET is not offered
+#   filter  status and period only, matched against an allow-list; no parameter
+#           is ever interpolated into a column name or ORDER BY clause
+# ---------------------------------------------------------------------------
+
+endpoints:
+  - POST   /api/v1/assessments
+  - GET    /api/v1/assessments
+  - GET    /api/v1/assessments/{assessment_id}
+  - POST   /api/v1/assessments/{assessment_id}/explanation-runs
+  - GET    /api/v1/assessments/{assessment_id}/explanation-runs
+  - POST   /api/v1/parsing-preview
+  - GET    /api/v1/demo-cases
+  # Health paths carry no /api/v1 prefix on purpose (gate A5 flags the mismatch).
+  # /api/v1 is a consumer contract that is versioned because breaking it breaks
+  # clients. /health/* is an operations contract called by the orchestrator, and
+  # a probe URL that moves with an API version would break deployment config on
+  # every version bump. Two different audiences, so two different axes — not an
+  # inconsistency. Revisit if a health endpoint ever gets a consumer.
+  - GET    /health/live
+  - GET    /health/ready
+
+exclude:
+  - endpoint: GET /docs
+    reason: FastAPI-generated Swagger UI; not spec-managed
+  - endpoint: GET /redoc
+    reason: FastAPI-generated ReDoc; not spec-managed
+  - endpoint: GET /openapi.json
+    reason: FastAPI-generated OpenAPI document; not spec-managed
+
+# ---------------------------------------------------------------------------
+# Deliberately NOT in this spec — recording the absence so it is a decision,
+# not an oversight. Adding any of these requires /design §5.
+#
+#   - No authentication or authorization surface. Demo scope: there is no second
+#     user to impersonate, so IDOR does not arise. Production would need it; see
+#     docs/리스크_통제_대장.md for the 3-step narration.
+#   - No delete or update surface on assessments. An assessment and its decision
+#     are immutable once written; that immutability is what makes the audit claim
+#     true. Retries append a new explanation_run rather than mutating one.
+#   - No collection-wide PUT/DELETE anywhere (gate A4).
+#   - No metrics/dashboard endpoint (P1), no rule-version comparison endpoint (P1).
+# ---------------------------------------------------------------------------
