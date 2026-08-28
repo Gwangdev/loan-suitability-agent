@@ -420,6 +420,108 @@ alembic upgrade head / downgrade base / upgrade head   →  정상
 `[포트폴리오 정리]` 내부 태그가 남아 있다. 항목 2 범위 밖(core.py는 이 항목에서
 수정하지 않음)이라 이번에 건드리지 않는다. 게이트 `L2`가 잡을지 체크포인트에서 확인.
 
+### 항목 3 — `POST /api/v1/assessments` (R1/R2, 진행 중, 2026-08-28)
+
+**항목 1의 관례를 복제했다.** 데코레이터에 전체 경로(`/api/v1/assessments`)를 쓰고
+`include_router`에 prefix를 두지 않는다 — health와 같은 방식이고, 게이트의 경로 추출
+(`PY_ROUTE`)이 prefix를 보지 않으므로 이렇게 해야 S3/S4 대조가 맞는다.
+
+| 만든 것 | 파일 | 근거 |
+|---|---|---|
+| 결정적 판정 → 저장 형태 변환 + 버전 2종 | `loan_agent/decision.py` | ADR-005. `rule_version`은 손으로 올리는 문자열, `product_dataset_version`은 CSV 내용 해시라 파일이 바뀌면 저절로 달라짐 |
+| 엔드포인트 · 요청 스키마 · 멱등성 · 트랜잭션 | `loan_agent/api/assessments.py` | ADR-003·004·019 |
+| API가 실제 커밋하는 테스트 픽스처 | `tests/conftest.py::api_db` | `db_session`(롤백)으로는 병렬·커밋 확인 불가 |
+
+**단일 트랜잭션.** `assessment_case(SCREENED)` + `decision_result` + `recommendation`×N
++ `explanation_run(PENDING)` + `audit_event`를 `sessionmaker.begin()` 한 블록에 쓰고
+한 번 커밋한다. `explanation_run(PENDING)`을 같은 트랜잭션에 넣은 것이 아웃박스이고,
+**LLM은 이 경로에서 호출하지 않는다** — 테스트가 `core.get_crew`/`get_llm`을 폭탄으로
+바꿔 두고도 201이 나오는 것으로 고정.
+
+**멱등성 3겹.** 선조회(같은 키·같은 해시 → 200 / 다른 해시 → 409) → INSERT →
+`uq_assessment_idempotency_key` 위반 포착 → 재조회. 선조회는 최적화이고 최종 방어선은
+UNIQUE다(ADR-004).
+
+**테스트 증거**
+
+```
+python3.11 -m pytest tests/test_assessments.py   →  8 failed (404, 엔드포인트 없음)   구현 전
+python3.11 -m pytest tests/test_assessments.py   →  8 passed                          구현 후
+python3.11 -m pytest                             →  70 passed  (기준선 62 + 8)
+```
+
+T1 #9(병렬 같은 키 N=8 → 심사 정확히 1건, `explanation_run`도 1건) 포함.
+
+**게이트:** 반복 구간이므로 돌리지 않았다(항목 1에서 S4·L2·C3 확인 완료). 체크포인트에서 전체 실행.
+이 항목으로 `S3`는 7 → 6으로 준다(GET /assessments, GET /assessments/{id}, POST·GET
+explanation-runs, POST /parsing-preview, GET /demo-cases 남음).
+
+**미결 — 다음 항목에서 정한다.** `_serialize`는 진행 중(PENDING/RUNNING) 설명 실행만
+응답에 싣는다. 재시도 항목(R6)에서 COMPLETED 실행이 생기면 응답 형상을 그 항목이
+확정한다 — R1 응답 스키마는 명세에 세부가 없어 지금은 최소형으로 둔다.
+
+### 항목 4 — `GET /api/v1/assessments/{id}` (R3, 완료, 2026-08-28)
+
+심사 상태·불변 판정·추천·설명 실행 이력을 한 응답에 결합했다. 판정에는
+`rule_version`과 `product_dataset_version`을, 실행에는 모델·프롬프트·지연·토큰·오류·Eval
+결과를 넣는다. 존재하지 않는 심사는 404 `problem+json`으로 응답한다.
+
+### 항목 5 — `GET /api/v1/assessments` (R4, 완료, 2026-08-28)
+
+상태 allow-list와 기간 필터만 받고, `(created_at, id)`를 base64로 감싼 불투명 커서를
+쓴다. 정렬·필터의 컬럼 이름을 요청 값으로 만들지 않으므로 SQL 조립 경로가 없다. 기본
+`limit`은 20, 상한은 100이며, 결과가 없을 때도 200과 빈 `items` 배열을 반환한다.
+
+### 항목 6 — `POST /api/v1/assessments/{id}/explanation-runs` (R6, 완료, 2026-08-28)
+
+설명 재생성은 판정 테이블을 읽거나 다시 쓰지 않고 새 `PENDING` 실행만 만든다. 기존
+`PENDING` 또는 `RUNNING` 실행은 앱 검사와 `uq_explanation_run_in_flight`가 함께 막아
+409로 응답한다. 실제 LLM 호출과 상태 전이는 별도 워커의 책임으로 남겼다.
+
+### 항목 7 — `GET /api/v1/assessments/{id}/explanation-runs` (R7, 완료, 2026-08-28)
+
+모든 실행의 모델·프롬프트 버전·지연·토큰·오류 코드와 Eval 결과를 반환한다. 자연어 원문과
+전체 프롬프트는 컬럼 자체가 없어 조회 경로에도 실릴 수 없다.
+
+### 항목 8 — `POST /api/v1/parsing-preview` (R5, 완료, 2026-08-28)
+
+`core.rule_based_parse`와 `core.missing_required_fields`를 재사용해 구조화 후보와 누락
+목록만 반환한다. DB 세션을 열지 않으며, 테스트가 호출 전후 `assessment_case` 행 수가 같은지
+확인해 원문·후보가 심사 레코드로 남지 않음을 고정한다.
+
+### 항목 9 — `GET /api/v1/demo-cases` (R9, 완료, 2026-08-28)
+
+`core.load_demo_fixtures`의 사전 녹화 출력을 그대로 반환한다. API 키나 LLM 호출을 요구하지
+않으므로 열람은 토큰 비용 0이다.
+
+**테스트 증거**
+
+```
+pytest tests/test_assessment_followups.py  →  7 failed (404/405, 구현 전)
+pytest tests/test_assessment_followups.py  →  8 passed               (구현 후)
+pytest                                     →  78 passed, 1 warning
+```
+
+테스트 첫 실행 뒤 fixture 정리가 멈췄다. 원인은 `Engine.connect()`로 얻은 두 연결을 닫지
+않아 `idle in transaction`이 된 것이고, `TRUNCATE`와 다음 마이그레이션이 그 잠금을 기다렸다.
+테스트의 조회 연결을 context manager로 닫도록 바꾼 뒤 같은 focused 테스트와 전체 테스트가
+끝까지 통과했다.
+
+이 항목들로 `S3`의 남은 6건은 모두 구현됐다. 반복 구간 규칙에 따라 게이트는 실행하지
+않았고, 체크포인트에서 한 번만 전체 판정했다.
+
+**체크포인트 검증**
+
+```
+pytest                        →  78 passed, 1 warning
+python3.11 tools/test_gate.py →  91/91 통과
+python3.11 tools/gate.py .    →  BLOCK 1 · WARN 9
+```
+
+`S3`와 `S4`는 0건이다. 남은 BLOCK은 과거 커밋 이력 `G3` 하나이며, 이력 재작성 없이
+해소할 수 없다는 기존 판단을 바꾸지 않는다. 기준선의 WARN 10건에서 9건으로 줄었고 새
+BLOCK·WARN은 없다.
+
 ## 테스트 결과 · 증거 (출처 포함)
 - (없음)
 

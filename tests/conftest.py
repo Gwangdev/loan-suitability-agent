@@ -81,3 +81,31 @@ def db_session(_migrated_db):
 @pytest.fixture()
 def db_url():
     return TEST_DATABASE_URL
+
+
+_APP_TABLES = (
+    "assessment_case",
+    "decision_result",
+    "recommendation",
+    "explanation_run",
+    "eval_result",
+    "audit_event",
+)
+
+
+@pytest.fixture()
+def api_db(_migrated_db, monkeypatch):
+    """API가 실제로 커밋하는 테스트용 DB.
+
+    `db_session`은 테스트를 트랜잭션으로 감싸 롤백하므로 병렬 요청이나 커밋된
+    상태를 확인하는 테스트에는 쓸 수 없다. 여기서는 앱이 자기 세션으로 실제
+    커밋하도록 `DATABASE_URL`을 테스트 DB로 맞추고, 끝에 표를 비운다.
+    """
+    from loan_agent.db import engine as db_engine
+
+    monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
+    db_engine.reset()
+    yield _migrated_db
+    with _migrated_db.begin() as conn:
+        conn.execute(text("TRUNCATE " + ", ".join(_APP_TABLES) + " CASCADE"))
+    db_engine.reset()

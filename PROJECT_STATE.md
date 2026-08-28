@@ -4,11 +4,11 @@
 > **Keep it at 100 lines or fewer.** If exceeded, run `/compact`.
 > Operational file — English. Korean stays in `PROJECT_LOG.md` and user-facing output.
 
-- **Version:** v5
+- **Version:** v7
 - **Updated:** 2026-08-28
 - **Harness version:** v9.17
 - **Goal:** Rebuild Loan into **Loan Decision Support — a verifiable loan-consultation decision-support platform**, the single flagship portfolio piece for the 2026 Hanwha Finance Platform-IT application. Submit by 2026-09-18; everything but the SQLD result done by 2026-09-10.
-- **Current step:** `/build` item 2 done (`GET /health/ready` + persistence layer — SQLAlchemy models for all 6 tables, 2 Alembic migrations (integrity / performance split per ADR-014), engine with ADR-022 resource caps, readiness probe checking DB + migration head). 18 new tests pass on real PostgreSQL (ADR-008). Gate deferred to checkpoint (iteration zone). Remaining design item: architecture diagram (deferred until code settles).
+- **Current step:** `/build` endpoint set done (R1–R7, R9–R10). Items 4–9 add assessment reads/cursor list, explanation-run regeneration/history, non-persistent parsing preview, and recorded demo cases. Checkpoint: `pytest` 78 passed; gate `BLOCK 1 · WARN 9`, with only historical G3 blocking. Remaining design item: architecture diagram (deferred until code settles).
 
 ## Spine (never dilute — user-confirmed)
 
@@ -77,7 +77,8 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…022)**
 
 ## Next Action
 
-- `/build` item 3 — `POST /api/v1/assessments` (R1/R2). Deterministic decision in a single transaction (assessment_case + decision_result + recommendation + explanation_run PENDING), Idempotency-Key + request-hash + UNIQUE (ADR-004), errors per SPEC policy. Uses the persistence layer from item 2.
+- `/build` endpoint set is implemented. Items 4–9 use `loan_agent/api/assessments.py` and `tests/test_assessment_followups.py`: R3 read returns decision/version/run/Eval state; R4 uses bounded cursor pagination; R6 only creates PENDING and leaves LLM execution to a worker; R7 excludes unpersisted raw prompts; R5 does not open a DB session; R9 serves recorded fixtures without a key. Checkpoint verified: `pytest` 78 passed, `test_gate` 91/91, gate `BLOCK 1 · WARN 9`; S3/S4 are 0.
+- Still open after the endpoint set: wire `app.py` to the API (3-tier execution path), ADR-016 runtime resource-cap check.
 - Track B landed in this same checkpoint (compose 3-tier + Dockerfile hardening, CI `services: postgres`, Eval expansion to 15 cases with 7 fault injections). Review found 3 defects — CI service port unmapped, conftest skipping on an unreachable DB, a duplicated comment — all fixed here.
 - Gate state (checkpoint-verified): `S0` 0, `S4` 0, `BLOCK 2` — `G3` (past history, not clearable) and `S3` 7 (unimplemented spec items). `T2` now reports 6/9 after two gate fixes. Self-tests 91/91.
 - Local test DB: `postgresql+psycopg2:///loan_suitability_test` (homebrew postgresql@17). CI uses `services: postgres` with `DATABASE_URL`. Both are real PostgreSQL per ADR-008. `alembic` + `psycopg2-binary` added to `requirements.txt`.

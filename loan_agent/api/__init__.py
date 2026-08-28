@@ -13,7 +13,7 @@
 """
 from fastapi import FastAPI
 
-from loan_agent.api import errors, health
+from loan_agent.api import assessments, errors, health
 
 app = FastAPI(
     title="Loan Decision Support API",
@@ -27,5 +27,6 @@ app = FastAPI(
 
 errors.install(app)
 app.include_router(health.router)
+app.include_router(assessments.router)
 
 __all__ = ["app"]
