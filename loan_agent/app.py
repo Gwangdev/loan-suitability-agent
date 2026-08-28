@@ -21,6 +21,9 @@ import re
 import sys
 import threading
 import time
+import uuid
+
+import httpx
 
 # Streamlit Cloud는 `streamlit run loan_agent/app.py`로 실행하며, 이때 리포 루트가
 #   sys.path에 포함되지 않아 `from loan_agent import core`가 ModuleNotFoundError로 실패한다
@@ -43,6 +46,10 @@ except Exception:
     pass
 
 from loan_agent import core  # noqa: E402  (secrets 반영 이후에 import)
+
+# Compose에서는 서비스 이름 app으로, 로컬에서는 같은 포트의 Uvicorn으로 접속한다. 화면이
+# 판정을 직접 계산하지 않고 이 접속점만 알게 해야 UI → API → DB 경계가 실제 요청 경로가 된다.
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 
 st.set_page_config(
     page_title="대출 적합성 심사 | 데모", page_icon="🏦", layout="wide",
@@ -550,6 +557,43 @@ def _customer_to_nl(c: dict) -> str:
             f"담보 {'보유' if c['담보보유'] else '미보유'}.")
 
 
+def _submit_assessment(customer: dict) -> dict:
+    """확정한 구조화 입력을 API에 보낸다. 멱등 키는 클릭마다 새 심사를 식별한다."""
+    payload = {
+        "monthly_income": customer["월소득"],
+        "existing_debt": customer["부채"],
+        "credit_grade": customer["신용등급"],
+        "requested_amount": customer["희망금액"],
+        "employment_type": customer["직장유형"],
+        "collateral_owned": customer["담보보유"],
+    }
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    response = httpx.post(
+        f"{API_BASE_URL}/api/v1/assessments",
+        json=payload,
+        headers={"Idempotency-Key": str(uuid.uuid5(uuid.NAMESPACE_URL, canonical))},
+        timeout=10.0,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def _screen_from_assessment(assessment: dict) -> dict:
+    """API의 안정된 영문 계약을 기존 화면 표시용 최소 구조로 바꾼다."""
+    labels = {"ELIGIBLE": "승인가능", "CONDITIONAL": "상담필요", "INELIGIBLE": "어려움"}
+    bands = {"COMFORTABLE": "여유", "MODERATE": "보통", "STRAINED": "부족"}
+    return {
+        "판정": labels[assessment["verdict"]],
+        "상환능력": bands[assessment["repayment_band"]],
+        "DSR": assessment["dsr"],
+        "월상환액": assessment["monthly_payment"],
+        "추천상품": None,
+        "추천후보": [],
+        "적격상품": [],
+        "부적격사유": {},
+    }
+
+
 def _fill_input(text: str):
     """예시 케이스 클릭 → 텍스트 채우고 곧바로 구조화 폼까지 자동 채움."""
     st.session_state.customer_input = text
@@ -695,11 +739,15 @@ def main():
 
     # ④-a 결정적 심사만 (키·토큰 0) — 폼이 진실의 원천이므로 배지·판정이 폼과 정확히 일치(A1 해소).
     if screen_clicked and not missing:
-        st.session_state.last_result = {"파싱결과": json.dumps(customer, ensure_ascii=False),
-                                        "심사결과": None, "안내문": None}
-        st.session_state.last_screen = core.screen_loan(customer)
-        st.session_state.last_input = _customer_to_nl(customer)
-        st.session_state.is_demo = False
+        try:
+            assessment = _submit_assessment(customer)
+            st.session_state.last_result = {"파싱결과": json.dumps(customer, ensure_ascii=False),
+                                            "심사결과": None, "안내문": None}
+            st.session_state.last_screen = _screen_from_assessment(assessment)
+            st.session_state.last_input = _customer_to_nl(customer)
+            st.session_state.is_demo = False
+        except httpx.HTTPError:
+            st.error("심사 서비스에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
 
     # ④-b AI 안내문까지 (키 필요) — 구조화 값을 표준 문장으로 만들어 파이프라인에 투입.
     if run_clicked and not missing:
@@ -713,7 +761,7 @@ def main():
             try:
                 nl = _customer_to_nl(customer)
                 st.session_state.last_result = _run_pipeline(nl, api_key=api_key)
-                st.session_state.last_screen = core.screen_loan(customer)  # 권위 판정 = 구조화 폼
+                st.session_state.last_screen = _screen_from_assessment(_submit_assessment(customer))
                 st.session_state.last_input = nl
                 st.session_state.is_demo = False
                 st.session_state.run_count = run_count + 1

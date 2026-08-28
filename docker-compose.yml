@@ -20,6 +20,8 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      API_BASE_URL: http://app:8000
     user: "10001:10001"
     read_only: true
     tmpfs:
@@ -63,6 +65,7 @@ services:
         limits:
           cpus: "0.50"
           memory: 512M
+
 
   postgres:
     image: postgres:16-alpine
