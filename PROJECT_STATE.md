@@ -4,11 +4,11 @@
 > **Keep it at 100 lines or fewer.** If exceeded, run `/compact`.
 > Operational file — English. Korean stays in `PROJECT_LOG.md` and user-facing output.
 
-- **Version:** v7
+- **Version:** v8
 - **Updated:** 2026-08-28
 - **Harness version:** v9.17
 - **Goal:** Rebuild Loan into **Loan Decision Support — a verifiable loan-consultation decision-support platform**, the single flagship portfolio piece for the 2026 Hanwha Finance Platform-IT application. Submit by 2026-09-18; everything but the SQLD result done by 2026-09-10.
-- **Current step:** `/build` endpoint set done (R1–R7, R9–R10). Items 4–9 add assessment reads/cursor list, explanation-run regeneration/history, non-persistent parsing preview, and recorded demo cases. Checkpoint: `pytest` 78 passed; gate `BLOCK 1 · WARN 9`, with only historical G3 blocking. Remaining design item: architecture diagram (deferred until code settles).
+- **Current step:** Track C partially complete. The Streamlit deterministic-submit path calls the API with an idempotency key; README limitations resolved D2. Docker runtime, load, and index measurements are blocked until the local Docker daemon is available. Latest: `pytest` 80 passed; gate `BLOCK 1 · WARN 8`, with only historical G3 blocking. Remaining design item: architecture diagram (deferred until code settles).
 
 ## Spine (never dilute — user-confirmed)
 
