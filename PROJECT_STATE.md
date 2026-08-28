@@ -8,7 +8,7 @@
 - **Updated:** 2026-08-28
 - **Harness version:** v9.17
 - **Goal:** Rebuild Loan into **Loan Decision Support — a verifiable loan-consultation decision-support platform**, the single flagship portfolio piece for the 2026 Hanwha Finance Platform-IT application. Submit by 2026-09-18; everything but the SQLD result done by 2026-09-10.
-- **Current step:** Track C partially complete. The Streamlit deterministic-submit path calls the API with an idempotency key; README limitations resolved D2. Docker runtime, load, and index measurements are blocked until the local Docker daemon is available. Latest: `pytest` 80 passed; gate `BLOCK 1 · WARN 8`, with only historical G3 blocking. Remaining design item: architecture diagram (deferred until code settles).
+- **Current step:** Explanation worker added (ADR-023) — it claims PENDING runs with `FOR UPDATE SKIP LOCKED`, records model/prompt versions, tokens and Eval, and moves the run and the assessment. This closed a design gap: nothing had ever moved a run out of PENDING, so three of the four case states were unreachable and the audit columns stayed empty. Track C: the Streamlit deterministic path now goes through the API (C1), README limitations cleared D2 (C6). **Only the container resource-cap check (C2) needs Docker** — load (C3) and index (C4) measurements run against local PostgreSQL and are not blocked. Latest: `pytest` 88 passed; gate `BLOCK 1 · WARN 8`, historical G3 only. Remaining design item: architecture diagram (deferred until code settles).
 
 ## Spine (never dilute — user-confirmed)
 
@@ -57,6 +57,7 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…022)**
 - **ADR-011** 3-tier as container/network boundaries; `postgres` internal-only, no host port. **No CORS config because the structure makes it unnecessary** (Streamlit is server-side rendered).
 - **ADR-012** API uses English enums (`ELIGIBLE`/`CONDITIONAL`/`INELIGIBLE`), screen uses Korean. `RECEIVED`/`REJECTED_INPUT` deleted as dead states.
 - **ADR-018 / ADR-022** LLM retry uses the SDK's built-in (max_retries 2), never a hand-rolled loop. Resource caps: pool 5+5, timeouts nest outward (UI 15s > app 10s > DB 5s), explanation-run cap 200s.
+- **ADR-023** The explanation worker uses `FOR UPDATE SKIP LOCKED`, not a queue — the DB already gives the one-at-a-time guarantee, and a second store would do the same job twice. **Claim and execute are separate**: the row is marked RUNNING and committed before the LLM call, or the lock would be held for tens of seconds. Stale RUNNING rows past the 200s cap return to PENDING. Never add a scheduler, leader election, or a hand-rolled backoff.
 - **ADR-020** Local sLLM is added as a comparison axis, not a replacement — the spine makes a testable prediction (swap the model, the verdict must not move) and the comparison is what turns that claim into evidence.
 - **Data model is frozen:** `docs/데이터모델.md` (ERD, state diagram, constraints, two-stage index migration). It supersedes 세부기술서 §8.
 - **`G3`** bulk voice-normalization is cleared by rewriting the docs in stage 5, **never by silencing the gate axis**.
