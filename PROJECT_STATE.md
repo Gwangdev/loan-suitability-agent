@@ -4,11 +4,11 @@
 > **Keep it at 100 lines or fewer.** If exceeded, run `/compact`.
 > Operational file — English. Korean stays in `PROJECT_LOG.md` and user-facing output.
 
-- **Version:** v4
-- **Updated:** 2026-08-26
+- **Version:** v5
+- **Updated:** 2026-08-28
 - **Harness version:** v9.17
 - **Goal:** Rebuild Loan into **Loan Decision Support — a verifiable loan-consultation decision-support platform**, the single flagship portfolio piece for the 2026 Hanwha Finance Platform-IT application. Submit by 2026-09-18; everything but the SQLD result done by 2026-09-10.
-- **Current step:** `/build` item 1 done (`GET /health/live` — conventions fixed, gate S4/L2/C3 all 0). Design closeout in progress: data model + ERD + state diagram done, ADR-020…022 added. Remaining design item: architecture diagram (deferred until code settles).
+- **Current step:** `/build` item 2 done (`GET /health/ready` + persistence layer — SQLAlchemy models for all 6 tables, 2 Alembic migrations (integrity / performance split per ADR-014), engine with ADR-022 resource caps, readiness probe checking DB + migration head). 18 new tests pass on real PostgreSQL (ADR-008). Gate deferred to checkpoint (iteration zone). Remaining design item: architecture diagram (deferred until code settles).
 
 ## Spine (never dilute — user-confirmed)
 
@@ -70,16 +70,17 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…022)**
 ## Open Feedback (numbers → ledger in `PROJECT_LOG.md`)
 
 - **#3** `G3` voice-normalization — clears in the stage-5 doc rewrite
-- **#4** `I3` static `/health` — clears when `/health/live`+`/health/ready` land
+- **#4** `I3` static `/health` — **resolved (2026-08-28).** `/health/live` (item 1) + `/health/ready` (item 2) landed; ready probes DB + Alembic head. Full text in ledger
 - **#5** `D2` README has no limitations section — clears in the doc rewrite
 - **#6** `P2` commit author email in the 28 pre-rebuild commits — **decided: leave it.** Config already uses the noreply address, so new commits are clean
 - **#8** `C1` why-comments at 33% vs 40% — re-measure after the rebuild
 
 ## Next Action
 
-- `/build` item 2 — `GET /health/ready` + the persistence layer (SQLAlchemy, Alembic, models per `docs/데이터모델.md`). The first-item gate already ran; next gate is at the checkpoint.
-- Track B (compose hardening, CI postgres, Eval expansion) is handed to Codex via `prompts/codex-track-b.md`. File ownership is fixed in `PROJECT_LOG.md`; Track A never edits Track B's files.
-- Gate state: `S0` 0, **`S4` 0** (old surface fully removed). `S3` 8 is the intended spec-vs-code gap that drives the build. `X1` is a false positive (ledger #2).
+- `/build` item 3 — `POST /api/v1/assessments` (R1/R2). Deterministic decision in a single transaction (assessment_case + decision_result + recommendation + explanation_run PENDING), Idempotency-Key + request-hash + UNIQUE (ADR-004), errors per SPEC policy. Uses the persistence layer from item 2.
+- Track B landed in this same checkpoint (compose 3-tier + Dockerfile hardening, CI `services: postgres`, Eval expansion to 15 cases with 7 fault injections). Review found 3 defects — CI service port unmapped, conftest skipping on an unreachable DB, a duplicated comment — all fixed here.
+- Gate state (checkpoint-verified): `S0` 0, `S4` 0, `BLOCK 2` — `G3` (past history, not clearable) and `S3` 7 (unimplemented spec items). `T2` now reports 6/9 after two gate fixes. Self-tests 91/91.
+- Local test DB: `postgresql+psycopg2:///loan_suitability_test` (homebrew postgresql@17). CI uses `services: postgres` with `DATABASE_URL`. Both are real PostgreSQL per ADR-008. `alembic` + `psycopg2-binary` added to `requirements.txt`.
 
 ## Halt Reason
 

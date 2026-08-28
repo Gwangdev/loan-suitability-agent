@@ -26,7 +26,7 @@
 | 1 | 본인 발견 | `[디벨롭: X]` 내부 태그가 공개 코드에 잔존. `d2f8a0d 공개 전 식별정보 제거`를 거쳤는데도 남았다 | **해소(2회에 걸침).** 1차로 `loan_agent/*.py` 29곳을 제거했으나, **검색 범위를 `loan_agent/`로만 잡아 「전부 제거」라고 보고한 것이 틀렸다.** `/build` 중 저장소 전체를 다시 훑어 `pyproject.toml`·`tests/test_products.py`·`.github/workflows/ci.yml`·`loan_agent_demo.ipynb` **4곳을 추가 제거**했다. 태그만 없애고 설명 문장은 유지 | 미커밋 | `loan_agent/*.py` · `pyproject.toml` · `tests/test_products.py` · `.github/workflows/ci.yml` · `loan_agent_demo.ipynb` | `grep -rn "\[디벨롭" .` → 0건 · `pytest` |
 | 2 | 게이트 `X1` | `loan_agent/app.py:649` 하드코딩 자격증명 | **게이트 결함으로 확인·수정 완료.** 오탐이 아니라 게이트 버그였다 — v9.16이 추가한 따옴표 없는 대입 패턴(`ASSIGN_SECRET_BARE`)이 설정 파일용인데 소스 코드에까지 적용돼, 파이썬의 `api_key = _effective_api_key()` 같은 평범한 대입이 전부 걸렸다. **대상을 설정·환경 파일 확장자로 한정**했고 프로젝트 사본과 `~/.harness-src` 양쪽에 적용했다 | `aaacf11` | `tools/gate.py` | `test_gate.py` 「X1 반증: 소스의 함수 대입」 |
 | 3 | 게이트 `G3` | `docs: 문서 문체를 학술체로 통일` 커밋이 저자 지문을 지웠다(213줄 삭제·232줄 추가, 정보량 동일) | **정정.** 앞서 「문서 개편에서 자연스럽게 해소, 개편 후 `G3` 소멸 확인」이라고 적었으나 **성립하지 않는다** — `G3`는 `git log`의 커밋 제목을 스캔하므로 문서를 다시 써도 과거 커밋(`e2455da`)은 이력에 영구히 남는다. 이력 재작성 없이는 사라지지 않으며, 그 재작성은 `P2`와 같은 이유로 기각했다. **조치: 게이트를 고쳤다(`aaacf11`)** — `--commit` 모드에서 정보로 강등해 커밋을 막지 않되, 일반 게이트에서는 BLOCK을 유지한다. 지적 자체는 유효하기 때문이다. 문서 개편은 별개로 진행하되 그것이 `G3`를 지우지는 않는다 | `aaacf11` | `tools/gate.py` | `test_gate.py` 「커밋: 과거 문체 커밋 비차단」 |
-| 4 | 게이트 `I3` | `/health`가 정적 응답 — 의존 자원이 죽어도 healthy | **진짜. 계획이 이미 해소한다.** 세부기술서 §9.4가 `/health/live`·`/health/ready` 분리, §15.3이 readiness에서 DB·마이그레이션 확인. 게이트가 계획의 타당성을 역으로 확인해줬다 | — | `loan_agent/api.py:58` | readiness 통합테스트 |
+| 4 | 게이트 `I3` | `/health`가 정적 응답 — 의존 자원이 죽어도 healthy | **해소.** 항목 1에서 `/health/live`(정적, 의도적), 항목 2에서 `/health/ready`가 DB 연결 + Alembic head 대조를 실제로 수행. 준비 안 됨 → 503. 구 정적 `/health`는 항목 1에서 제거됨 | 미커밋 | `loan_agent/api/health.py` · `loan_agent/db/readiness.py` | `test_health.py` 「ready 503 when db unreachable / migration behind」 |
 | 5 | 게이트 `D2` | `README.md`에 한계·미해결 절이 없다 | **진짜. 미조치 — `/design`에서 처리.** 전략기획서 §7 10페이지의 「검증된 범위·한계」·§12 금지 과장과 직결된다 | — | `README.md` | `gate.py` `D2` |
 | 6 | 게이트 `P2` | 커밋 author 이메일 `rhkdzhf54@naver.com` 노출 | **범위 축소 확인 후 미조치 결정.** git 설정은 로컬·전역 모두 이미 `59742337+Gwangdev@users.noreply.github.com`이라 **앞으로의 커밋은 전부 noreply로 나간다.** 남은 것은 기존 28개 커밋의 author 값뿐이며, git은 author를 커밋 객체에 저장하므로 설정 변경이 소급되지 않는다. 이력 재작성(`filter-repo --mailmap`)은 해시 28개가 전부 바뀌고 force push가 필요해 되돌릴 수 없다. **실익(스팸 수집 방지)이 대가보다 작고, 「과거를 지우지 않고 앞으로를 바르게 한다」는 `G3` 처리 원칙과 일관되므로 그대로 둔다** | — | git 이력(28커밋, 2026-07-27) | — |
 | 7 | 게이트 `S2` | 미호출 공개 함수 3건 | **전부 설명 가능. 미조치.** `run_logic_selftest()`=노트북·문서에서 호출하는 공개 API / `tool()`=crewai 부재 시 no-op 데코레이터 폴백(데코레이터로 실제 사용) / `worker()`=`threading.Thread(target=worker)`로 호출. 축 7은 정적 참조만 세므로 WARN | — | `loan_agent/core.py`·`app.py` | — |
@@ -380,6 +380,45 @@ python3.11 tools/gate.py .    →  S4 0 · L2 0 · C3 0   (첫 항목에서 확�
 | 자연어 파싱 HTTP 경로 | `POST /api/v1/parsing-preview` |
 | 데모 케이스 목록·단건 조회 | `GET /api/v1/demo-cases` |
 | 필수필드 누락 → 422, 키 부재 → 503 | `POST /api/v1/assessments` 및 설명 실행 항목 |
+
+### 항목 2 — `GET /health/ready` + 영속화 계층 (완료, 2026-08-28)
+
+**항목 1의 관례를 복제했다.** 기능 단위 파일 분리, 태그 없는 원인→과정→결론 주석,
+수용 기준을 명세·데이터 모델에서 테스트로 먼저 옮기고 실패를 확인한 뒤 구현.
+
+| 만든 것 | 파일 | 근거 |
+|---|---|---|
+| 6개 모델 매핑 | `loan_agent/db/models.py` | 데이터 모델 §2 ERD. `status`/`verdict`는 `TEXT`+`CHECK`(ADR-021) |
+| 엔진·세션·자원 상한 | `loan_agent/db/engine.py` | 풀 5+5·타임아웃 계층·`statement_timeout` 5초(ADR-022). import 시점이 아니라 첫 사용 시 생성 |
+| readiness 판정 | `loan_agent/db/readiness.py` | DB 연결 + Alembic head 대조. LLM 제공자는 확인하지 않음 |
+| `GET /health/ready` | `loan_agent/api/health.py` | 준비 안 됨 → 503 problem+json |
+| 마이그레이션 1 (정합성) | `alembic/versions/0001_integrity.py` | PK·FK·UNIQUE·CHECK·부분 UNIQUE 2종. 성능 인덱스 제외(ADR-014) |
+| 마이그레이션 2 (성능) | `alembic/versions/0002_performance_indexes.py` | 커서·상태필터·설명이력·감사추적 인덱스. §18 전후 비교용으로 분리 |
+| 테스트 픽스처 | `tests/conftest.py` | ADR-008 — 실제 PostgreSQL. 세션당 마이그레이션 1회, 테스트당 트랜잭션 롤백 |
+
+**순환 FK 처리.** `assessment_case` → `explanation_run` 두 테이블을 만든 뒤
+`fk_case_current_run`을 따로 붙였다. 포인터가 nullable이라 런타임에서 실제 순환은 없다(§3).
+
+**테스트 증거**
+
+```
+pytest tests/test_persistence.py tests/test_health.py   →  collection ImportError  (구현 전)
+DATABASE_URL=… pytest tests/test_persistence.py tests/test_health.py   →  18 passed  (구현 후)
+DATABASE_URL=… pytest --deselect test_eval.py::test_recorded_fixtures_full_pass   →  60 passed
+alembic upgrade head / downgrade base / upgrade head   →  정상
+```
+
+**게이트:** 반복 구간이므로 돌리지 않았다(첫 항목에서 S4·L2·C3 확인 완료). 체크포인트에서 전체 실행.
+
+**미결 — 내 항목 아님.** `tests/test_eval.py::test_recorded_fixtures_full_pass`가
+`n == 15`를 기대하나 픽스처는 5건이라 실패한다. Codex Track B3(Eval 확대)의
+진행 중 작업이 작업 트리에 미커밋 상태로 들어와 있다(`ci.yml`·`Dockerfile`·
+`docker-compose.yml`도 동일). Track A는 이 파일을 건드리지 않는다. 스태시로
+내 변경을 빼면 이 테스트는 통과 → 내 변경이 원인이 아님을 확인했다.
+
+**발견 사항 — 미조치, `/verify`로 넘긴다.** `loan_agent/core.py:22`에
+`[포트폴리오 정리]` 내부 태그가 남아 있다. 항목 2 범위 밖(core.py는 이 항목에서
+수정하지 않음)이라 이번에 건드리지 않는다. 게이트 `L2`가 잡을지 체크포인트에서 확인.
 
 ## 테스트 결과 · 증거 (출처 포함)
 - (없음)

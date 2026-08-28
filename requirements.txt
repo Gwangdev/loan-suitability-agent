@@ -5,3 +5,8 @@ python-dotenv>=1.0
 streamlit>=1.60
 fastapi>=0.110
 uvicorn>=0.27
+
+# 영속화 계층. psycopg2-binary는 휠로 배포돼 빌드 도구 없이 설치된다.
+sqlalchemy>=2.0,<2.1
+alembic>=1.13
+psycopg2-binary>=2.9

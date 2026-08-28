@@ -63,3 +63,67 @@ def test_error_body_does_not_leak_internals():
 
     assert "Traceback" not in r.text
     assert "loan_agent/" not in r.text
+
+
+def test_ready_reports_ready_when_db_and_migrations_current(_migrated_db, monkeypatch):
+    """readiness는 DB 연결과 마이그레이션 상태를 실제로 확인하고, 둘 다 최신이면 200."""
+    from loan_agent.db import engine as db_engine
+
+    monkeypatch.setattr(db_engine, "get_engine", lambda: _migrated_db)
+
+    r = client.get("/health/ready")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ready"
+    assert body["database"] == "ok"
+    assert body["migration"] == "ok"
+
+
+def test_ready_returns_503_when_db_unreachable(monkeypatch):
+    """의존 자원이 없으면 트래픽을 받을 준비가 안 된 것이므로 503 problem+json."""
+    from sqlalchemy import create_engine
+
+    from loan_agent.db import engine as db_engine
+
+    dead = create_engine("postgresql+psycopg2://127.0.0.1:1/nope")
+    monkeypatch.setattr(db_engine, "get_engine", lambda: dead)
+
+    r = client.get("/health/ready")
+
+    assert r.status_code == 503
+    assert r.headers["content-type"].startswith("application/problem+json")
+    assert r.json()["status"] == 503
+
+
+def test_ready_returns_503_when_migration_behind(_migrated_db, monkeypatch):
+    """DB는 붙지만 스키마가 head보다 뒤처져 있으면 준비되지 않은 것이다."""
+    from alembic import command
+
+    from loan_agent.db import engine as db_engine
+    from tests.conftest import _alembic_config
+
+    monkeypatch.setattr(db_engine, "get_engine", lambda: _migrated_db)
+    command.downgrade(_alembic_config(), "-1")
+    try:
+        r = client.get("/health/ready")
+        assert r.status_code == 503
+        assert r.json()["status"] == 503
+    finally:
+        command.upgrade(_alembic_config(), "head")
+
+
+def test_ready_ignores_llm_provider(_migrated_db, monkeypatch):
+    """LLM 제공자 장애는 readiness 실패로 보지 않는다.
+
+    결정적 판정은 제공자와 무관하게 동작하므로, 키가 없어도 readiness는 통과해야
+    한다. 그렇지 않으면 멀쩡한 판정 경로가 함께 차단된다.
+    """
+    from loan_agent.db import engine as db_engine
+
+    monkeypatch.setattr(db_engine, "get_engine", lambda: _migrated_db)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    r = client.get("/health/ready")
+
+    assert r.status_code == 200
