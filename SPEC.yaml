@@ -37,8 +37,9 @@ code_roots:
 #       product / model / prompt versions used.          -> GET    /assessments/{id}
 #   R4  A consultant finds past assessments by status
 #       and period.                                      -> GET    /assessments
-#   R5  Free text is turned into structured candidates
-#       without being stored, listing missing fields.    -> POST   /parsing-preview
+#   R5  Free text is turned into structured candidates by TWO independent
+#       parsers whose disagreement is surfaced, without being
+#       stored, listing missing fields.               -> POST   /parsing-preview
 #   R6  A failed explanation can be regenerated without
 #       recomputing or losing the decision.              -> POST   /assessments/{id}/explanation-runs
 #   R7  Every explanation attempt stays inspectable
@@ -68,8 +69,11 @@ code_roots:
 #   404 resource not found
 #   413 request body over the size cap
 #   415 unsupported Content-Type
-#   429 per-session run limit or cooldown
-#   503 upstream LLM provider unavailable
+#   429 run-rate limit or cooldown exceeded, enforced by the API itself
+#   503 upstream LLM provider unavailable — this also covers the synchronous
+#       explanation path exceeding the 200s cap (ADR-024 §24-R-b). A new 504
+#       is deliberately NOT introduced: exceeding the cap means the provider
+#       did not answer, and one class of failure exits one way.
 #   500 internal error, message masked (no stack trace, path, or query in the body)
 #
 # Error body format: RFC 9457 application/problem+json across every path. One
@@ -84,6 +88,53 @@ code_roots:
 #   cursor  opaque, encodes (created_at, id); OFFSET is not offered
 #   filter  status and period only, matched against an allow-list; no parameter
 #           is ever interpolated into a column name or ORDER BY clause
+#
+# Where the run-rate limit lives (revised 2026-08-28, ADR-028). The earlier
+# wording said "per-session", which cannot exist here: there is no auth surface
+# (ADR-009), so the API has no notion of a session. That wording is why the limit
+# ended up implemented only as a Streamlit counter, and once the screen started
+# calling the API, the API surface had no limit at all. The limit is now enforced
+# by the API, keyed on the client address, and only on the paths that can spend
+# tokens. The screen keeps its own counter as a second, client-side guard — it
+# gives the visitor a readable quota message, but it is not the control.
+#
+# One resource, one representation (revised 2026-08-28, ADR-026). POST and GET on
+# an assessment return the SAME shape: `decision` nested, `recommendations` as an
+# array, `explanation_runs` as an array. They previously differed — POST returned
+# the decision fields flat and a single `explanation_run` object — which forced a
+# client to branch on which verb produced the body. A sibling asymmetry with no
+# reason is a defect (design-review §1), and there was no reason.
+#
+# What a recommendation item carries (revised 2026-08-28, ADR-025): product_code,
+# rank, eligible, and the product detail the consultant actually reads — name,
+# bank, interest-rate range, maximum limit. Carrying only the code made the
+# screen's recommendation block unrenderable, which is why the UI hardcoded it
+# away. This does NOT revive withdrawn R8: R8 asked for a separate endpoint that
+# exposes the product dataset, and it was withdrawn because it had been derived
+# from an existing endpoint rather than from a scenario. This adds no endpoint —
+# it fills out the representation of a resource that already exists, and the
+# scenario is real (the screen renders it).
+#
+# Parsing preview runs two parsers (revised 2026-08-29, ADR-029). R5 previously
+# read "turned into structured candidates" and the implementation used only the
+# rule parser. The LLM parser (Agent 1) sat on the explanation path instead,
+# where its output was neither verified nor used — the Eval metric named
+# 파싱정확도 had nothing to score. R5 now runs BOTH parsers and returns their
+# disagreement as part of the representation. The disagreement IS the check: the
+# response reports it, the screen shows it, and a human picks. Code never
+# reconciles the two silently, because a value chosen by code at that point would
+# never be verified again. Still no endpoint added and still nothing stored.
+# Degrades, never fails: with no LLM key the response carries the rule parser's
+# result alone and says so.
+#
+# Explanation is one LLM call (revised 2026-08-29, ADR-030). The pipeline used to
+# make five sequential round trips, two of them re-deciding an assessment that
+# POST /assessments had already computed and stored. The decision, DSR and
+# recommended products are now injected into the prompt as data, and one call
+# returns the guidance text. This tightens a guarantee rather than loosening one:
+# "a tool call is the only way to get a number" depended on the model obeying a
+# prompt, while "the numbers are already in the prompt" leaves nothing to
+# generate. No contract change — the same fields come back.
 # ---------------------------------------------------------------------------
 
 endpoints:
@@ -128,6 +179,32 @@ exclude:
 #       already stated that execution belongs to a separate runner, and T1 #7
 #       called the PENDING row an outbox — an outbox with no consumer is just
 #       a table nobody reads.
+#
+#       Who executes (revised 2026-08-29, ADR-024 §24-R). Whoever holds the
+#       key executes. A SERVER key (local, compose, recorded demo) is spent by
+#       the worker, asynchronously, exactly as above. A VISITOR key arrives as
+#       a header on POST /assessments/{id}/explanation-runs and is spent by
+#       `app`, synchronously, because the request is the innermost place that
+#       key can reach — going further in would mean storing it, and storing a
+#       key is forbidden. Both paths claim the same explanation_run row and
+#       fill the same columns, so the audit trail does not fork; only the
+#       claimant differs. The earlier wording said the worker was the ONLY
+#       executor, which cannot coexist with the confirmed requirement that a
+#       visitor demo the service with their own token.
+#
+#       What stays true from the 2026-08-28 finding: the screen must never
+#       call the pipeline in-process without a row. That is what made one
+#       click spend tokens twice and leave the copy the visitor actually read
+#       unrecorded, contradicting R7. Both paths above write a row first.
+#
+#       The synchronous path CLAIMS AN EXISTING PENDING ROW, it does not
+#       reject it. Creating an assessment writes PENDING in the same
+#       transaction (ADR-003 outbox), so a 409 on "a run already exists"
+#       would fire on every visitor request. ADR-019's 409 is for a RUNNING
+#       row only.
+#
+#       Not deployed to the public host (ADR-031 §31.3): the worker has no key
+#       there and would race the visitor for PENDING rows.
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
