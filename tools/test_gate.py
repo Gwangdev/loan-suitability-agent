@@ -6,8 +6,8 @@
 
     python3 tools/test_gate.py
 
-[피드백1~8] 이 파일의 케이스는 실제로 게이트를 깨뜨린 적이 있는 입력에서 나왔다.
-            추측으로 만든 케이스는 넣지 않는다. 새 버그를 고칠 때마다 여기에 한 줄 추가한다.
+이 파일의 케이스는 실제로 게이트를 깨뜨린 적이 있는 입력에서 나왔다. 추측으로 만든
+케이스는 넣지 않는다. 새 버그를 고칠 때마다 여기에 한 줄 추가한다.
             예외는 축 A·K10처럼 외부 표준에서 온 검사다. 깨진 적이 없으므로 대신
             **반증 케이스를 함께 넣는다** — 잡는지보다 정상 입력을 통과시키는지가 더 중요하다.
 """
@@ -66,7 +66,7 @@ def git(d, *cmds):
 
 # ── 오탐 방지 (통과해야 하는 것) ─────────────────────────────────────────
 def b_gitignore(d):
-    """[피드백1] .gitignore가 정상 작동하는 저장소를 BLOCK하면 안 된다."""
+    """.gitignore가 정상 작동하는 저장소를 BLOCK하면 안 된다."""
     w(d, ".gitignore", "__pycache__/\n.venv/\n.env\nbuild/\n")
     w(d, "src/m.py", "def f():\n    return 1\n")
     for junk in ("__pycache__/x.pyc", ".venv/lib/y.py", "build/z.txt", ".env"):
@@ -75,7 +75,7 @@ def b_gitignore(d):
 
 
 def b_license(d):
-    """[피드백2] 파일마다 반복되는 라이선스 헤더는 템플릿 복제가 아니다."""
+    """파일마다 반복되는 라이선스 헤더는 템플릿 복제가 아니다."""
     for i in range(4):
         w(d, f"A{i}.java", "// Copyright 2026 Example Corp. All rights reserved.\nclass A%d {}\n" % i)
     w(d, ".gitignore", "*.class\n")
@@ -114,7 +114,7 @@ def b_dupcomment(d):
 
 
 def b_docstring_singlequote(d):
-    """[피드백3] ''' 한 줄 docstring도 커버리지에 세어야 한다."""
+    """''' 한 줄 docstring도 커버리지에 세어야 한다."""
     src = "".join("def f%d():\n    '''설명'''\n    return %d\n\n" % (i, i) for i in range(12))
     w(d, "m.py", src)
     w(d, ".gitignore", "")
@@ -337,8 +337,8 @@ def b_spec_absent(d):
 
 
 def b_spec_reqmapping(d):
-    """[피드백] 메서드 수준 @RequestMapping을 클래스 기준 경로로 오인해
-    정상 코드에 없는 누락(S3)을 만들어냈다. 다중 verb 지정도 함께 본다."""
+    """메서드 수준 @RequestMapping을 클래스 기준 경로로 오인해 정상 코드에 없는
+    누락(S3)을 만들어냈다. 다중 verb 지정도 함께 본다."""
     _w(d, "SPEC.yaml",
        "version: 1\nendpoints:\n  - GET /api/items\n"
        "  - POST /api/orders/{id}/lock\n  - DELETE /api/orders/{id}/lock\n")
