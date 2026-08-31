@@ -22,6 +22,11 @@ RUN pip install -r requirements.txt
 # core.BASE_DIR가 /app을 기준으로 데이터를 찾으므로 CSV를 애플리케이션 루트에 둔다.
 COPY loan_agent/ ./loan_agent/
 COPY loan_products.csv ./
+# 스키마의 진실의 원천은 마이그레이션이다. 이미지에 없으면 컨테이너가 스키마를 만들
+# 수단이 없고, /health/ready가 마이그레이션 상태를 보므로 준비 상태에 영영 도달하지
+# 못한다. 앱이 기동 시 테이블을 자동 생성하지 않는다는 규칙과 짝이 되는 조치다.
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
 # .env와 시크릿은 이미지에 복사하지 않고 런타임 환경으로만 전달한다.
 
 # 읽기 전용 루트 파일시스템에서 실행해도 동작하도록 홈은 Compose의 tmpfs에 둔다. 고정 UID는
