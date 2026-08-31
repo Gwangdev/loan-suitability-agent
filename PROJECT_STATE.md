@@ -74,22 +74,15 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…033)**
 
 ## Next Action
 
-0. **Refactor done (#38·#39)** — CSS→`static/apple.css`, LLM path→`loan_agent/llm.py` (**core.py has zero LLM references**), key header→`api/contract.py`. Pure relocation. Further core.py split deferred: 15 files, 90 sites, and 355 lines reads fine.
-1. **`#33`·`#34` closed 2026-08-29** — notebook deleted, all 3-Agent code removed (`core.py` −255, `app.py` −56). Two call-guard tests became a **structural absence assertion**, which is the stronger guarantee.
-2. **Reviews done.** Both slots used for this commit range; #40–#46 fixed. — this commit range's slot. **`/security-review` also applies**: the visitor key is a new external input path.
-3. **Then commit** (no trailer, split by feature).
-4. **AWS deploy** — ADR-031. **TLS gates the visitor-key feature.**
-5. **README last** (#13) — it can only state facts once 1–4 land.
+**Everything through the fixture regeneration is committed and clean.** What remains:
 
-**Fixtures regenerated 2026-08-31** with the owner key; #37 closed, zero "3-Agent" references left in `loan_agent/`. Eval back to **90/90** after fixing two real defects the regeneration exposed (#50 English enums leaking into user-facing text, #51 scorer grounded on the top product only) and one refactor break (#49 missing imports, now guarded by a name-resolution test). **#52 is the headline: the dual parser caught a 10x amount error the LLM made** — evidence for ADR-029 that is data, not narration.
+1. **AWS deploy** — ADR-031. **One open decision blocks it: buy a domain or not.** Options, the concepts needed to choose, and the exact procedure are in **`docs/배포계획.md`**. `nip.io`/`sslip.io` are rejected (shared Let's Encrypt rate limit, documented failures). CloudFront gives free TLS without a domain but leaves the CloudFront→EC2 leg in plaintext — the one thing §31.5 exists to prevent. Stop criterion 09-06 → video demo (§31.4).
+2. **Post-deploy work is written down, not carried in conversation** — **`docs/배포후_검토목록.md`**: both review slots (once per commit range, so they wait for deploy), the deferred `core.py` split with its re-judgement criterion, `#18`·`#25` for `/debug`, and the gate items already judged.
+3. **README last** (`#13`) — it can only state facts once deploy lands. Must record that the async worker path does **not** run in production (§31.3), or the docs are false again.
 
 **Missing measurement:** ADR-030 per-stage timing was never reported and the instrument died with #33. Measure total single-call latency instead.
 
-**Compose verified for the first time 2026-08-29** — 4/4 healthy, `/health/ready` ok, assessment + parsing-preview answer. It had never been started before; two blockers (#47 alpine uid 70≠999, #48 no migration step in image or compose) had to be fixed first.
-
-**Reviews done.** `/code-review` 7 findings (#40–#46, all fixed — incl. a worker crash on provider timeout and the root cause of #19). `/security-review`: nothing reportable; the visitor-key path never stores, logs, env-writes, or echoes the key.
-
-**Next Codex handoff must fix one prompt defect:** "do not edit `endpoints:`" was read literally, so header/shape/status-code contracts never reached `SPEC.yaml` (#35). Write it as "`endpoints:` is frozen; update every other contract comment."
+**Session-loss note:** conversation context is lost easily. Anything that must survive goes to a file — `PROJECT_LOG.md` for history, `docs/배포계획.md` and `docs/배포후_검토목록.md` for pending work.
 
 ## Halt Reason
 
