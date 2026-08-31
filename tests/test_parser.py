@@ -1,6 +1,8 @@
 """파싱 경계와 필수필드 검증 테스트 (API 키 불필요)."""
 from fastapi.testclient import TestClient
 
+import pytest
+
 from loan_agent import core, llm
 from loan_agent.api import app
 
@@ -115,3 +117,20 @@ def test_missing_required_fields_flags_sentinel_grade():
     # 신용등급 99 = 미입력 sentinel
     parsed = {"월소득": 3000000, "신용등급": 99, "희망금액": 20000000}
     assert "신용등급" in core.missing_required_fields(parsed)
+
+
+@pytest.mark.parametrize("text,expected,note", [
+    ("월소득 3,000,000", 3_000_000, "콤마 표기는 원 단위 전체 금액이다"),
+    ("월소득 5000000원", 5_000_000, "원을 명시하면 그대로"),
+    ("월급 700만원", 7_000_000, "만원을 명시하면 만 배"),
+    ("월 300", 3_000_000, "단위 생략은 만원 관행을 따른다"),
+    ("월소득 5000000", 5_000_000, "단위 없어도 백만 이상은 원이다"),
+])
+def test_amount_unit_is_inferred_from_notation(text, expected, note):
+    """단위 미기재의 기본값이 콤마 표기까지 삼키면 만 배 오차가 난다.
+
+    운영에서 "월소득 3,000,000"이 300억으로 파싱됐다. 단위가 없으면 만원으로 보는
+    기본값은 "월급 700" 같은 관행 때문에 필요하지만, 콤마를 찍은 전체 금액이나
+    백만 이상의 값에까지 적용하면 안 된다. 표기 자체가 단위를 말해 준다.
+    """
+    assert core.parse_korean_amount(text, ["월소득", "월급", "월"]) == expected, note

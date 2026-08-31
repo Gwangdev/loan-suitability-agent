@@ -219,6 +219,26 @@ def screen_loan(customer: dict, products: list = None) -> dict:
 # ---------------------------------------------------------------------------
 # 자연어 -> 구조화 파싱 (규칙 기반 폴백, API 키 불필요)
 # ---------------------------------------------------------------------------
+def _to_won(raw: str, unit: str | None) -> int:
+    """숫자 문자열과 단위를 원 단위 정수로 옮긴다.
+
+    단위를 생략하는 관행("월급 700" = 700만원)이 있어 미기재 시 만원으로 본다. 그런데
+    그 기본값을 콤마 찍힌 전체 금액에도 적용하면 3,000,000이 300억이 된다 — 만 배
+    오차이고, 금융 입력에서 가장 위험한 실패다.
+
+    표기 자체가 단위를 말해 준다. **콤마를 찍는 것은 원 단위 전체 금액을 쓸 때의
+    관행**이고, 만 단위로 말할 때는 "3000만원"처럼 붙여 쓴다. 그리고 단위 없는
+    백만 이상은 만원으로 읽으면 100억을 넘어 이 서비스의 어떤 항목에도 맞지 않는다.
+    두 신호 중 하나라도 있으면 원으로 읽는다.
+    """
+    num = int(raw.replace(",", ""))
+    if unit:
+        return num * 10000 if unit.startswith("만") else num
+    if "," in raw or num >= 1_000_000:
+        return num
+    return num * 10000
+
+
 def parse_korean_amount(text: str, keywords: list, gap: int = 6):
     """키워드<->숫자가 서로 가까이 있으면(양방향 ±gap자 이내) '○○만원/○○원'을 원 단위 정수로 추출.
     '월급 700만원'처럼 키워드가 먼저 오는 경우와 '3000만원 대출받고'처럼 숫자가 먼저 오는 경우를 모두 잡는다."""
@@ -228,15 +248,11 @@ def parse_korean_amount(text: str, keywords: list, gap: int = 6):
         # 숫자로 잘못 매칭하는 것을 방지(예: '대출받고 싶은데, 집을' 의 ',').
         m = re.search(rf"{kw}[^\d]{{0,{gap}}}(\d[\d,]*)\s*(만원|만|원)?", text)
         if m:
-            num = int(m.group(1).replace(",", ""))
-            unit = m.group(2) or "만원"
-            return num * 10000 if unit.startswith("만") else num
+            return _to_won(m.group(1), m.group(2))
         # 방향 2: 숫자 -> 키워드 (예: '3000만원 대출받고', '1000만원 빌리고')
         m = re.search(rf"(\d[\d,]*)\s*(만원|만|원)?[^\d]{{0,{gap}}}{kw}", text)
         if m:
-            num = int(m.group(1).replace(",", ""))
-            unit = m.group(2) or "만원"
-            return num * 10000 if unit.startswith("만") else num
+            return _to_won(m.group(1), m.group(2))
     return None
 
 
