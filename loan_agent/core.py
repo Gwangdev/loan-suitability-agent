@@ -335,21 +335,3 @@ def load_demo_fixtures() -> dict:
     return json.loads(DEMO_FIXTURES_PATH.read_text(encoding="utf-8"))
 
 
-def run_logic_selftest(cases: list = None) -> bool:
-    """API 키 없이 결정적 심사 로직만 검증(R5 핵심). 전체 일치 시 True."""
-    cases = cases if cases is not None else TEST_CASES
-    print("=" * 60, "\n결정적 심사 로직 자체 테스트 (API 키 불필요)\n" + "=" * 60)
-    all_pass = True
-    for tc in cases:
-        parsed = rule_based_parse(tc["input"])
-        result = screen_loan(parsed)
-        ok = result["판정"] == tc["expected"]
-        all_pass = all_pass and ok
-        print(f"\n[{tc['name']}] {'✅' if ok else '❌'}")
-        print(f"  파싱 : {parsed}")
-        print(f"  기대 : {tc['expected']} / 판정: {result['판정']} (상환 {result['상환능력']}, DSR {result['DSR']})")
-        print(f"  적격 : {result['적격상품']}")
-    print("\n" + "=" * 60)
-    print(f"결과: {'전체 통과 (' + str(len(cases)) + '/' + str(len(cases)) + ')' if all_pass else '실패 — 로직 수정 필요'}")
-    print("=" * 60)
-    return all_pass
