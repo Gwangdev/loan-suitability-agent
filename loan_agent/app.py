@@ -266,10 +266,12 @@ def _render_result(out: dict, screen: dict = None):
                 if len(screen.get("추천후보", [])) > 1:
                     with st.expander("대안 상품 비교 (상위 3위 · 금리+승인여유+중도상환 기준)"):
                         st.dataframe(
-                            [{"순위": i, "상품코드": c["상품코드"], "상품명": c["상품명"],
-                              "은행": c["은행"], "금리범위": c["금리범위"],
-                              "승인여유마진": c["승인여유마진"], "중도상환수수료(%)": c["중도상환수수료"],
-                              "상환방식": c["상환방식"], "금리방식": c["금리방식"]}
+                            # 한 칸이 비어도 화면 전체가 죽지 않게 get으로 읽는다. 값이
+                            # 없는 것과 페이지가 사라지는 것은 사용자에게 전혀 다른 일이다.
+                            [{"순위": i, "상품코드": c.get("상품코드"), "상품명": c.get("상품명"),
+                              "은행": c.get("은행"), "금리범위": c.get("금리범위"),
+                              "승인여유마진": c.get("승인여유마진"), "중도상환수수료(%)": c.get("중도상환수수료"),
+                              "상환방식": c.get("상환방식"), "금리방식": c.get("금리방식")}
                              for i, c in enumerate(screen["추천후보"], 1)],
                             width="stretch", hide_index=True,
                         )
@@ -379,6 +381,10 @@ def _screen_from_assessment(assessment: dict) -> dict:
             "은행": row["bank"],
             "금리범위": row["interest_rate_range"],
             "최대한도": row["maximum_limit"],
+            "상환방식": row.get("repayment_method"),
+            "금리방식": row.get("rate_type"),
+            "중도상환수수료": row.get("early_repayment_fee"),
+            "승인여유마진": row.get("approval_margin"),
         }
         for row in assessment["recommendations"]
         if row["eligible"]

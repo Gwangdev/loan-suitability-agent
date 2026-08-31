@@ -115,6 +115,17 @@ code_roots:
 # it fills out the representation of a resource that already exists, and the
 # scenario is real (the screen renders it).
 #
+# Four more fields, found in production (revised 2026-08-31). The list above was
+# derived from the single "recommended product" line and missed the alternatives
+# comparison table, which ranks by rate + approval margin + early-repayment fee
+# and therefore needs `repayment_method`, `rate_type`, `early_repayment_fee` and
+# `approval_margin`. Their absence raised KeyError and killed the whole page on
+# the live path. The demo-fixture path never showed it: that path recomputes the
+# screen through `screen_loan` and gets all nine fields, while the live path only
+# has what the API returns. **Two paths, one renderer, different shapes.** All
+# four were already persisted in `reason_codes`, so nothing about storage
+# changed — the representation was simply narrower than the screen needed.
+#
 # Parsing preview runs two parsers (revised 2026-08-29, ADR-029). R5 previously
 # read "turned into structured candidates" and the implementation used only the
 # rule parser. The LLM parser (Agent 1) sat on the explanation path instead,

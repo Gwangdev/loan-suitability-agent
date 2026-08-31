@@ -140,6 +140,13 @@ def _recommendation_payload(row: Recommendation) -> dict:
         "bank": detail["은행"],
         "interest_rate_range": detail["금리범위"],
         "maximum_limit": detail["최대한도"],
+        # 아래 넷은 순위를 만든 근거다. 화면의 대안 비교표가 「금리+승인여유+중도상환
+        # 기준 상위 3위」를 보여주는데, 그 기준값을 돌려주지 않으면 왜 이 순서인지
+        # 확인할 수 없다. DB에는 이미 있으므로 저장 형식은 바뀌지 않는다.
+        "repayment_method": detail["상환방식"],
+        "rate_type": detail["금리방식"],
+        "early_repayment_fee": detail["중도상환수수료"],
+        "approval_margin": detail["승인여유마진"],
     }
 
 
