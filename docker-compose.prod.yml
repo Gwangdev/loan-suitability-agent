@@ -1,0 +1,50 @@
+# 운영 전용. 기본 파일과 함께 명시해서 쓴다.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# `-f` 를 쓰면 docker-compose.override.yml 이 자동으로 얹히지 않는다. 그래서 로컬용
+# 호스트 포트(8501·8000)가 운영에 새어 나가지 않는다.
+#
+# 워커는 여기 없다. `profiles: ["local"]` 이라 프로파일을 켜지 않으면 뜨지 않는다
+# (ADR-031 §31.3 — 서버 키가 없어 할 일이 없고, 켜 두면 방문자가 집으려던 PENDING
+# 행을 먼저 집어 실패시킨다).
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    # 인터넷에 열리는 유일한 지점이다. 80은 Let's Encrypt 발급 확인과 HTTPS
+    # 리다이렉트에 쓰이므로 함께 연다.
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 발급받은 인증서와 계정 키. 이 볼륨을 잃으면 재발급을 받게 되고, 짧은 시간에
+      # 반복하면 Let's Encrypt 한도에 걸린다. 컨테이너를 지워도 남도록 이름을 준다.
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - frontend
+    depends_on:
+      ui:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:2019/config/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
+volumes:
+  caddy_data:
+  caddy_config:
