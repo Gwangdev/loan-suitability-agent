@@ -24,7 +24,7 @@ import uuid
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from loan_agent import core, decision, eval as evaluator
+from loan_agent import core, llm, decision, eval as evaluator
 from loan_agent.db import engine as db_engine
 from loan_agent.db import models
 
@@ -34,11 +34,11 @@ EVAL_METRICS = evaluator.METRICS
 
 # ADR-022가 정한 설명 작업 상한을 그대로 쓴다. 같은 뜻의 숫자를 여기서 새로 정하면
 # 두 값이 갈라지고, 어느 쪽이 맞는지 나중에 알 수 없다.
-RUN_TIMEOUT_SECONDS = 200
+RUN_TIMEOUT_SECONDS = core.EXPLANATION_RUN_TIMEOUT_SECONDS
 
 # 프롬프트를 고치면 이 값을 올린다. 모델명과 나누어 두는 이유는 둘이 독립적으로
 # 바뀌기 때문이다 — 합치면 품질 변화가 모델 탓인지 프롬프트 탓인지 가릴 수 없다(ADR-005).
-PROMPT_VERSION = "3agent-2026.08"
+PROMPT_VERSION = "guidance-2026.08"
 
 POLL_INTERVAL_SECONDS = float(os.getenv("WORKER_POLL_SECONDS", "2"))
 
@@ -57,6 +57,14 @@ class Score:
     checks: dict
     passed: bool
     detail: dict
+
+
+class ExplanationRunConflict(Exception):
+    """이미 다른 실행자가 아직 유효한 RUNNING 행을 보유한 경우."""
+
+
+class ExplanationTimedOut(Exception):
+    """ADR-022의 설명 실행 상한을 넘긴 경우."""
 
 
 def claim_one() -> uuid.UUID | None:
@@ -102,30 +110,98 @@ def reclaim_stale() -> int:
         return len(stale)
 
 
-def generate_explanation(case: models.AssessmentCase) -> Explanation:
-    """3-Agent 파이프라인을 돌려 안내문을 만든다.
+def claim_for_visitor(assessment_id: uuid.UUID) -> uuid.UUID:
+    """방문자 키 요청이 기존 PENDING 또는 스테일 RUNNING 행을 집는다.
 
-    저장된 구조화 필드를 표준 문장으로 바꿔 넣는다. 자연어 원문은 저장하지 않으므로
-    (ADR-002) 여기서 재구성하며, 그 편이 파싱 편차도 없앤다.
+    행을 RUNNING으로 바꾸는 트랜잭션은 여기서 끝낸다. LLM 호출을 같은 트랜잭션에
+    넣으면 커넥션을 장시간 점유해 ADR-003의 분리 규칙을 깨기 때문이다.
     """
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        seconds=RUN_TIMEOUT_SECONDS
+    )
+    with Session(bind=db_engine.get_engine()) as session, session.begin():
+        case = session.get(models.AssessmentCase, assessment_id)
+        if case is None:
+            raise KeyError(assessment_id)
+        run = session.execute(
+            select(models.ExplanationRun)
+            .where(models.ExplanationRun.assessment_id == assessment_id)
+            .where(models.ExplanationRun.status.in_(("PENDING", "RUNNING")))
+            # id는 uuid4라 정렬해도 시간순이 아니다. 지금은 in-flight 행이 최대
+            # 하나라 어느 쪽을 집어도 같지만, 코드가 「최신 행」을 고른다고 읽히면서
+            # 실제로는 임의 선택인 상태를 남겨 두지 않는다.
+            .order_by(models.ExplanationRun.started_at.desc().nullslast())
+            .with_for_update()
+        ).scalars().first()
+        if (
+            run is not None
+            and run.status == "RUNNING"
+            and run.started_at is not None
+            and run.started_at >= cutoff
+        ):
+            raise ExplanationRunConflict(assessment_id)
+        if run is None:
+            run = models.ExplanationRun(assessment_id=assessment_id, status="PENDING")
+            session.add(run)
+            session.flush()
+        run.status = "RUNNING"
+        run.started_at = datetime.datetime.now(datetime.timezone.utc)
+        return run.id
+
+
+def _guidance_context(assessment_id: uuid.UUID) -> dict:
+    """DB에 확정 저장된 판정과 추천 상세만 안내문 입력으로 만든다."""
+    with Session(bind=db_engine.get_engine()) as session:
+        decision_row = session.get(models.DecisionResult, assessment_id)
+        recommendations = session.execute(
+            select(models.Recommendation)
+            .where(models.Recommendation.assessment_id == assessment_id)
+            .where(models.Recommendation.eligible.is_(True))
+            .order_by(models.Recommendation.rank)
+        ).scalars().all()
+    return {
+        "verdict": decision_row.verdict,
+        "repayment_band": decision_row.repayment_band,
+        "dsr": float(decision_row.dsr),
+        "recommendations": [row.reason_codes for row in recommendations],
+    }
+
+
+def _usage_tokens(usage) -> tuple[int | None, int | None]:
+    """토큰 사용량을 객체와 dict 양쪽에서 꺼낸다.
+
+    crewai는 `crew.usage_metrics`로 UsageMetrics 객체를 주고 녹화 픽스처는 dict를 준다.
+    예전 추출식은 삼항 조건이 전체 식을 dict인 경우로 묶어, 객체를 처리하려고 넣은
+    getattr 분기가 도달할 수 없었다 — 그래서 실제 실행에서는 두 값이 항상 None이었다.
+    """
+    if usage is None:
+        return None, None
+    if isinstance(usage, dict):
+        return usage.get("prompt_tokens"), usage.get("completion_tokens")
+    return getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None)
+
+
+def generate_explanation(case: models.AssessmentCase, api_key: str | None = None) -> Explanation:
+    """저장된 결정 데이터를 주입해 안내문을 한 번 생성한다."""
     import asyncio
 
-    sentence = (
-        f"월소득 {case.monthly_income}원, 부채 {case.existing_debt}원, "
-        f"신용등급 {case.credit_grade}등급, 희망 대출금액 {case.requested_amount}원, "
-        f"직장유형 {case.employment_type}, "
-        f"담보 {'보유' if case.collateral_owned else '미보유'}."
+    result = asyncio.run(
+        asyncio.wait_for(
+            llm.generate_guidance(_guidance_context(case.id), api_key=api_key),
+            timeout=RUN_TIMEOUT_SECONDS,
+        )
     )
-    result = asyncio.run(core.run_service(sentence))
-    usage = result.get("usage") or {}
+    usage = result.get("usage")
+    input_tokens, output_tokens = _usage_tokens(usage)
+    guidance = result.get("text") or ""
+    if core.DISCLAIMER not in guidance:
+        guidance = f"{guidance}\n\n{core.DISCLAIMER}"
     return Explanation(
-        text=result.get("안내문") or "",
-        model_name=core.get_model_name(),
+        text=guidance,
+        model_name=result.get("model_name") or llm.get_model_name(),
         prompt_version=PROMPT_VERSION,
-        input_tokens=getattr(usage, "prompt_tokens", None) or usage.get("prompt_tokens")
-        if isinstance(usage, dict) else None,
-        output_tokens=getattr(usage, "completion_tokens", None) or usage.get("completion_tokens")
-        if isinstance(usage, dict) else None,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
 
 
@@ -200,12 +276,13 @@ def _finish(run_id: uuid.UUID, explanation: Explanation | None, score: Score | N
         case.current_explanation_run_id = run.id
 
 
-def run_once() -> bool:
-    """작업 하나를 처리한다. 집을 것이 없으면 False."""
-    run_id = claim_one()
-    if run_id is None:
-        return False
-
+def execute_claimed_run(
+    run_id: uuid.UUID,
+    *,
+    api_key: str | None = None,
+    raise_timeout: bool = False,
+) -> None:
+    """이미 RUNNING으로 커밋된 행을 실행하고 결과를 같은 행에 기록한다."""
     with Session(bind=db_engine.get_engine()) as session:
         run = session.get(models.ExplanationRun, run_id)
         case = session.get(models.AssessmentCase, run.assessment_id)
@@ -213,17 +290,41 @@ def run_once() -> bool:
 
     started = time.monotonic()
     try:
-        explanation = generate_explanation(case)
+        explanation = generate_explanation(case, api_key=api_key) if api_key else generate_explanation(case)
         score = score_explanation(case, explanation)
+    except TimeoutError as exc:
+        _finish(run_id, None, None, "PROVIDER_TIMEOUT", int((time.monotonic() - started) * 1000))
+        if raise_timeout:
+            raise ExplanationTimedOut(run_id) from exc
+        # 동기 경로만 예외를 올린다. 워커 경로는 행에 기록하고 조용히 끝내야 하는데,
+        # return이 없으면 아래 _finish로 흘러내려 할당된 적 없는 explanation·score를
+        # 읽는다. 그 UnboundLocalError는 run_once를 거쳐 main()의 루프까지 올라가
+        # 워커 프로세스를 죽인다.
+        return
     except Exception:
-        # 예외 원문에는 자격증명·엔드포인트가 섞일 수 있어 저장하지 않는다. 정규화된
-        # 코드만 남기고 상세는 로그의 몫이다(ADR-002).
-        logger.exception("explanation run failed: %s", run_id)
+        # 제공자 예외 원문에는 자격증명이 섞일 수 있다. 저장뿐 아니라 로그에도 남기지
+        # 않고 실행 식별자와 정규화된 코드만 기록한다.
+        logger.error("explanation run failed: %s", run_id)
         _finish(run_id, None, None, "PROVIDER_ERROR", int((time.monotonic() - started) * 1000))
-        return True
+        return
 
     _finish(run_id, explanation, score, None, int((time.monotonic() - started) * 1000))
+
+
+def run_once() -> bool:
+    """작업 하나를 처리한다. 집을 것이 없으면 False."""
+    run_id = claim_one()
+    if run_id is None:
+        return False
+    execute_claimed_run(run_id)
     return True
+
+
+def run_for_visitor(assessment_id: uuid.UUID, api_key: str) -> uuid.UUID:
+    """방문자 키로 기존 실행 행을 동기 처리한다. 키는 호출 체인 밖에 저장하지 않는다."""
+    run_id = claim_for_visitor(assessment_id)
+    execute_claimed_run(run_id, api_key=api_key, raise_timeout=True)
+    return run_id
 
 
 def main() -> None:  # pragma: no cover - 실행 진입점

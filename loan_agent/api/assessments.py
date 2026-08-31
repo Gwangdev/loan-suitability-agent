@@ -129,44 +129,23 @@ def _persist(session, payload: AssessmentRequest, idempotency_key: str, request_
     return case.id
 
 
+def _recommendation_payload(row: Recommendation) -> dict:
+    """상담 화면과 안내문이 읽을 상품 상세를 추천 표현에 함께 싣는다."""
+    detail = row.reason_codes
+    return {
+        "product_code": row.product_code,
+        "rank": row.rank,
+        "eligible": row.eligible,
+        "product_name": detail["상품명"],
+        "bank": detail["은행"],
+        "interest_rate_range": detail["금리범위"],
+        "maximum_limit": detail["최대한도"],
+    }
+
+
 def _serialize(session, assessment_id: uuid.UUID) -> dict:
     """저장된 심사를 응답 본문으로 옮긴다. 생성 직후에도 재요청 응답에도 같은 모양이다."""
-    case = session.get(AssessmentCase, assessment_id)
-    result = session.get(DecisionResult, assessment_id)
-    recommendations = (
-        session.execute(
-            select(Recommendation)
-            .where(Recommendation.assessment_id == assessment_id)
-            .order_by(Recommendation.rank)
-        )
-        .scalars()
-        .all()
-    )
-    run = (
-        session.execute(
-            select(ExplanationRun)
-            .where(ExplanationRun.assessment_id == assessment_id)
-            .where(ExplanationRun.status.in_(IN_FLIGHT_RUN_STATUSES))
-            .order_by(ExplanationRun.id)
-        )
-        .scalars()
-        .first()
-    )
-
-    return {
-        "assessment_id": str(case.id),
-        "status": case.status,
-        "verdict": result.verdict,
-        "repayment_band": result.repayment_band,
-        "dsr": float(result.dsr),
-        "monthly_payment": result.monthly_payment,
-        "recommendations": [
-            {"product_code": r.product_code, "rank": r.rank} for r in recommendations
-        ],
-        "rule_version": result.rule_version,
-        "product_dataset_version": result.product_dataset_version,
-        "explanation_run": {"id": str(run.id), "status": run.status} if run else None,
-    }
+    return _assessment_detail(session, assessment_id)
 
 
 def _replay(session, existing: AssessmentCase, request_hash: str, response: Response) -> dict:
@@ -203,10 +182,7 @@ def _assessment_detail(session, assessment_id: uuid.UUID) -> dict:
             "rule_version": result.rule_version,
             "product_dataset_version": result.product_dataset_version,
         },
-        "recommendations": [
-            {"product_code": row.product_code, "rank": row.rank, "eligible": row.eligible}
-            for row in recommendations
-        ],
+        "recommendations": [_recommendation_payload(row) for row in recommendations],
         "explanation_runs": [explanations.run_payload(run, evaluated) for run, evaluated in rows],
     }
 
@@ -301,4 +277,3 @@ def list_assessments(
             ],
             "next_cursor": _encode_cursor(page[-1].created_at, page[-1].id) if trailing else None,
         }
-

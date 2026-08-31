@@ -11,11 +11,13 @@
 """
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from loan_agent.api.contract import API_KEY_HEADER
 from loan_agent.db import engine as db_engine
+from loan_agent import worker
 from loan_agent.db.models import (
     AssessmentCase,
     EvalResult,
@@ -39,6 +41,7 @@ def run_payload(run: ExplanationRun, eval_result=None) -> dict:
         "input_tokens": run.input_tokens,
         "output_tokens": run.output_tokens,
         "error_code": run.error_code,
+        "explanation_text": run.explanation_text,
         "eval_result": (
             {
                 "parse_accuracy": eval_result.parse_accuracy,
@@ -66,7 +69,26 @@ def runs_with_eval(session, assessment_id: uuid.UUID) -> list:
 
 
 @router.post("/api/v1/assessments/{assessment_id}/explanation-runs", status_code=201)
-def regenerate_explanation(assessment_id: uuid.UUID):
+def regenerate_explanation(
+    assessment_id: uuid.UUID,
+    response: Response,
+    api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
+):
+    if api_key:
+        try:
+            run_id = worker.run_for_visitor(assessment_id, api_key)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="심사를 찾을 수 없습니다.") from exc
+        except worker.ExplanationRunConflict as exc:
+            raise HTTPException(status_code=409, detail="진행 중인 설명 실행이 있습니다.") from exc
+        except worker.ExplanationTimedOut as exc:
+            raise HTTPException(status_code=503, detail="안내문 제공자가 응답하지 않았습니다.") from exc
+        with db_engine.get_sessionmaker()() as session:
+            run = session.get(ExplanationRun, run_id)
+            payload = run_payload(run)
+        response.status_code = status.HTTP_200_OK
+        return payload
+
     sessionmaker = db_engine.get_sessionmaker()
     try:
         with sessionmaker.begin() as session:
@@ -82,7 +104,11 @@ def regenerate_explanation(assessment_id: uuid.UUID):
             run = ExplanationRun(assessment_id=assessment_id, status="PENDING")
             session.add(run)
             session.flush()
-            return {"id": str(run.id), "status": run.status}
+            # 키가 있든 없든 같은 표현을 돌려준다. 형상이 갈리면 클라이언트가 자기
+            # 요청에 키를 넣었는지로 파싱을 분기해야 하고, 그것은 ADR-026이 심사
+            # 응답에서 결함으로 판정한 형제 비대칭과 같은 형태다. 아직 실행 전이라
+            # 대부분의 필드는 비어 있는데, 그 비어 있음 자체가 상태를 말해 준다.
+            return run_payload(run)
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="진행 중인 설명 실행이 있습니다.") from exc
 

@@ -35,12 +35,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      # 테스트는 LLM 호출을 하지 않아 무거운 런타임 의존성을 설치하지 않는다. PostgreSQL 통합
-      # 테스트는 러너 서비스에 연결하므로, 애플리케이션과 같은 드라이버를 명시적으로 설치한다.
+      # 테스트가 API와 Streamlit 클라이언트를 실제로 import하므로 런타임 의존성 전체를 설치한다.
+      # PostgreSQL 통합 테스트는 러너 서비스에 연결한다.
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest python-dotenv fastapi httpx sqlalchemy psycopg2-binary alembic
+          pip install -r requirements.txt pytest httpx
 
       - name: Run pytest
         env:

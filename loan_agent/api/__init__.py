@@ -15,6 +15,7 @@ from fastapi import FastAPI
 
 from loan_agent.api import assessments, demo, errors, explanations, health, parsing
 
+
 app = FastAPI(
     title="Loan Decision Support API",
     version="2.0.0",

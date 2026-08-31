@@ -53,7 +53,7 @@ code_roots:
 #       not an HTTP surface. The number is left as a gap on purpose so the removal
 #       stays visible. If it turns out to be needed, re-add it via /design §5.
 #   R9  A visitor without an API key can read pre-recorded
-#       3-Agent output at zero token cost.               -> GET    /demo-cases
+#       guidance output at zero token cost.              -> GET    /demo-cases
 #   R10 An operator can tell "process alive" apart from
 #       "dependencies actually ready".                   -> GET    /health/live
 #                                                           GET    /health/ready
@@ -127,6 +127,52 @@ code_roots:
 # Degrades, never fails: with no LLM key the response carries the rule parser's
 # result alone and says so.
 #
+# Headers that carry an LLM key (added 2026-08-29, ADR-024 §24-R + ADR-029).
+# `X-OpenAI-API-Key` is optional on exactly two paths: POST /parsing-preview and
+# POST /assessments/{id}/explanation-runs. It is a visitor's own key, it flows as
+# a function argument only, and it is never stored, logged, or written to the
+# process environment (forbidden action 7). Absent the header both paths still
+# answer — see the degradation rules below. It appears on no other path, and no
+# path requires it.
+#
+# POST /assessments/{id}/explanation-runs answers 201 or 200 (added 2026-08-29).
+#   201  no key header — a PENDING run is created for the worker to claim later.
+#        A new resource exists, so 201 with the newly created run.
+#   200  key header present — no new resource is created in the usual case: the
+#        request CLAIMS the PENDING row that creating the assessment already
+#        wrote (or a RUNNING row stale past the 200s cap), runs it synchronously,
+#        and returns the finished run. 200 because the answer is the state of a
+#        run that already existed.
+#   This is a split on a header, not a hidden branch: the client knows whether it
+#   sent a key, so the status is predictable from the caller's own request. It is
+#   recorded here because a contract the spec does not state is a contract only
+#   the code knows.
+#
+#   The BODY is the same either way (revised 2026-08-29, code review). Both paths
+#   return the run representation. They briefly did not — the async path returned
+#   only {id, status} — which forced a client to branch its parsing on whether it
+#   had sent a key. That is the same sibling asymmetry ADR-026 rejected on the
+#   assessment response. On the async path most fields come back empty, and that
+#   emptiness is itself the state: no model, no tokens, no text yet.
+#
+# POST /parsing-preview response shape (revised 2026-08-29, ADR-029). The body
+# carries BOTH parsers rather than one merged answer:
+#   rule_candidate     always present — the deterministic parser's fields
+#   llm_candidate      the LLM parser's fields, or null when no key was sent
+#   mismatched_fields  the field names the two disagree on. THIS is the check
+#   parse_accuracy     the Eval 파싱정확도 score for this pair (wires up #18)
+#   missing_fields     required fields still absent, as before
+#   degraded           true when llm_candidate is null, so a reader can tell
+#                      "the two agreed" apart from "only one parser ran"
+# Nothing is stored, and code never reconciles the two — a human picks. A missing
+# key degrades the response, it does not fail it: R5's contract is "structured
+# candidates come back", and one parser still satisfies that. 200 either way.
+#
+# A run's representation carries explanation_text (added 2026-08-29). Safe under
+# ADR-007 because guidance that fails Eval is never written in the first place,
+# so the column is NULL on FAILED and REVIEW_REQUIRED runs. The field exposes
+# what was published, never what was withheld.
+#
 # Explanation is one LLM call (revised 2026-08-29, ADR-030). The pipeline used to
 # make five sequential round trips, two of them re-deciding an assessment that
 # POST /assessments had already computed and stored. The decision, DSR and
@@ -167,7 +213,7 @@ exclude:
 #
 #   explanation worker   `python -m loan_agent.worker`, one compose service.
 #       Claims explanation_run(PENDING) with FOR UPDATE SKIP LOCKED, runs the
-#       3-Agent pipeline, writes the result, model/prompt versions, latency and
+#       single guidance call, writes the result, model/prompt versions, latency
 #       tokens, scores it with the existing Eval, then transitions the run and
 #       the assessment. Added 2026-08-28 (ADR-023) because R7 — "every
 #       explanation attempt stays inspectable, model and prompt version

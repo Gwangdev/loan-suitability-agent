@@ -26,7 +26,7 @@ def test_submit_assessment_posts_structured_form_with_idempotency_key(monkeypatc
     assert captured["timeout"] == 10.0
 
 
-def test_submit_assessment_reuses_the_key_for_the_same_confirmed_form(monkeypatch):
+def test_submit_assessment_uses_a_new_key_for_each_new_confirmed_submission(monkeypatch):
     keys = []
 
     class Response:
@@ -45,7 +45,7 @@ def test_submit_assessment_reuses_the_key_for_the_same_confirmed_form(monkeypatc
     app._submit_assessment(customer)
     app._submit_assessment(customer)
 
-    assert keys[0] == keys[1]
+    assert keys[0] != keys[1]
 
 
 def test_usage_cost_uses_input_and_output_token_rates():

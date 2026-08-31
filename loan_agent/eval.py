@@ -58,6 +58,24 @@ def _wons(text: str) -> set:
     return {int(x.replace(",", "")) for x in re.findall(r"([\d,]{4,})\s*원", text)}
 
 
+def score_parse_candidates(rule_candidate: dict, llm_candidate: dict | None) -> dict:
+    """파싱 미리보기의 두 후보를 Eval 파싱정확도 기준으로 비교한다.
+
+    이 값은 어느 후보를 채택하는 판정이 아니다. 불일치 필드를 화면에 드러내 사람이
+    확정할 수 있게 하는 경계 검증 결과다.
+    """
+    fields = ("월소득", "부채", "신용등급", "희망금액", "직장유형", "담보보유")
+    if llm_candidate is None:
+        return {"parse_accuracy": None, "mismatched_fields": []}
+    mismatched_fields = [
+        field for field in fields if rule_candidate.get(field) != llm_candidate.get(field)
+    ]
+    return {
+        "parse_accuracy": not mismatched_fields,
+        "mismatched_fields": mismatched_fields,
+    }
+
+
 def score_case(case: dict) -> dict:
     """단일 케이스의 사전 녹화 출력을 결정적 정답과 대조해 지표별 0/1을 매긴다."""
     inp = case.get("input", "")

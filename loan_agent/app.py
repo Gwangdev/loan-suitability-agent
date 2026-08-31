@@ -1,26 +1,24 @@
-"""대출 적합성 심사 3-Agent 파이프라인 — Streamlit 프론트엔드.
+"""대출 적합성 심사 — Streamlit 프론트엔드.
 작성자 : 원광식
 
 실행: streamlit run loan_agent/app.py  (프로젝트 루트에서 실행 권장)
 
-모든 심사 로직·프롬프트는 loan_agent/core.py 한 곳에 있고, 이 파일은 그 위에
-UI만 얹는다. 로직을 이 파일에 다시 옮겨 적지 않는다.
+심사 로직은 loan_agent/core.py, LLM 프롬프트는 loan_agent/llm.py에 있고 이 파일은
+그 위에 UI만 얹는다. 로직을 이 파일에 다시 옮겨 적지 않는다.
 
-# [포트폴리오 정리] 원래 별도 디자인 명세 파일을 참고했으나 저장소에는 포함하지
-#   않으므로 그 참조를 제거했다. 디자인 토큰은 아래 _inject_apple_css()에 인라인으로
-#   모두 정의되어 있어 이 파일만으로 자기완결적이다.
-Apple 스타일 디자인 토큰(색상·타이포·라운드·컴포넌트)을 아래 CSS에 직접 정의하고,
+디자인 토큰(색상·타이포·라운드·컴포넌트)은 static/apple.css에 있고 _load_css()가
+한 번만 읽어 주입한다. 원래 별도 디자인 명세 파일을 참고했으나 저장소에 포함하지
+않으므로 그 참조는 제거했다.
 Streamlit 기본 크롬(햄버거 메뉴·헤더·"Made with Streamlit" 푸터)을 감추고
 실제 제품 웹앱처럼 보이도록 히어로·카드·푸터 구조로 재구성했다.
 """
-import asyncio
 from decimal import Decimal
+from functools import lru_cache
+from pathlib import Path
 import json
 import os
-import queue
 import re
 import sys
-import threading
 import time
 import uuid
 
@@ -62,252 +60,48 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ---------------------------------------------------------------------------
-# Apple 스타일 디자인 토큰 (인라인 정의) — 색상/타이포/라운드/버튼 그래머
-# ---------------------------------------------------------------------------
-BADGE_COLOR = {"승인가능": "#1f9d55", "상담필요": "#d97706", "어려움": "#dc2626"}
-STAGE_LABEL = {
-    "parse": "1/3 정보 파싱 중 (Agent 1)",
-    "review": "2/3 심사 판단 중 (Agent 2)",
-    "advise": "3/3 안내문 작성 중 (Agent 3)",
-}
-STAGE_NEXT = {"parse": "review", "review": "advise", "advise": None}
+# 서버 상한을 넘긴 응답이 도착할 시간. 상한 초과를 기록하고 503을 직렬화하는 데
+# 드는 시간만 있으면 되므로 짧게 잡는다.
+CLIENT_TIMEOUT_MARGIN_SEC = 10
 
-# [타팀 피드백-1] Agent 2 작동 시간이 길어 프론트엔드 UX가 답답하다는 지적 반영.
-#   심사(특히 Agent 2)가 수 초~수십 초 걸리므로, 대기 중 화면이 멈춘 것처럼 보이지 않도록
+BADGE_COLOR = {"승인가능": "#1f9d55", "상담필요": "#d97706", "어려움": "#dc2626"}
+
+# 안내문 생성 대기 시간이 길어 화면이 답답해지는 문제를 반영한다.
+#   안내문 생성이 수 초 걸리므로, 대기 중 화면이 멈춘 것처럼 보이지 않도록
 #   이 팁들을 몇 초 간격으로 돌려 유용한 정보를 제공한다(교육용 데모라 개념 설명 위주).
-AGENT_TIPS = [
+WAIT_TIPS = [
     "💡 DSR(총부채원리금상환비율)은 '연간 원리금상환액 ÷ 연소득'으로, 낮을수록 상환 여력이 큽니다(은행권 규제 상한 40%).",
     "💡 신용등급은 숫자가 낮을수록 우량합니다(1등급이 가장 우량).",
     "💡 판정은 LLM이 아니라 CSV 하드규칙 기반의 결정적 로직이 내립니다 — 재현성 있는 안전장치예요.",
-    "💡 Agent 2는 CoT(단계적 추론)로 DSR 상환능력→신용등급→한도→상품선별 순서로 근거를 만듭니다.",
     "💡 담보를 제공하면 저신용 구간에서도 적격 상품이 생길 수 있습니다.",
     "💡 같은 이름의 상품이 여러 은행에 있어, 안내문은 상품코드·은행명을 함께 표기합니다.",
     "💡 안내문 마지막의 디스클레이머는 규제 통제를 위해 항상 강제 삽입됩니다.",
 ]
 
 
+
+@lru_cache(maxsize=1)
+def _load_css() -> str:
+    """스타일시트를 한 번만 읽는다. 파일이 없으면 화면을 죽이지 않고 무스타일로 뜬다."""
+    path = Path(__file__).resolve().parent / "static" / "apple.css"
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
 def _inject_apple_css():
-    st.markdown(
-        """
-<style>
-:root {
-  --color-primary: #0066cc;
-  --color-primary-focus: #0071e3;
-  --color-ink: #1d1d1f;
-  --color-ink-muted-80: #333333;
-  --color-ink-muted-48: #7a7a7a;
-  --color-canvas: #ffffff;
-  --color-parchment: #f5f5f7;
-  --color-pearl: #fafafc;
-  --color-hairline: #e0e0e0;
-  --color-divider-soft: #f0f0f0;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", system-ui, sans-serif;
-  --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
-  --radius-sm: 8px;
-  --radius-md: 11px;
-  --radius-lg: 18px;
-  --radius-pill: 9999px;
-}
+    """화면 스타일을 주입한다.
 
-/* --- Streamlit 기본 크롬 제거: 실제 제품처럼 보이게 --- */
-html, body { margin: 0 !important; padding: 0 !important; }
-[data-testid="stAppHeader"],
-[data-testid="stToolbar"],
-[data-testid="stAppToolbar"],
-[data-testid="stMainMenu"],
-[data-testid="stStatusWidget"],
-[data-testid="stAppDeployButton"],
-[data-testid="stDecoration"],
-#MainMenu, footer {
-  display: none !important;
-  visibility: hidden !important;
-  height: 0 !important;
-  min-height: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
-}
-[data-testid="stAppViewContainer"] {
-  padding-top: 0 !important;
-}
-
-/* --- 캔버스 & 컨테이너 --- */
-html, body, #root,
-[data-testid="stAppViewContainer"],
-[data-testid="stApp"],
-[data-testid="stMain"],
-.stApp {
-  background: var(--color-parchment) !important;
-}
-[data-testid="stMainBlockContainer"] {
-  max-width: 900px;
-  margin: 0 auto;
-  padding-top: 2.5rem;
-  padding-bottom: 4rem;
-}
-[data-testid="stAppViewContainer"], [data-testid="stSidebar"], .stMarkdown, p, span, li, label, div {
-  font-family: var(--font-body);
-}
-
-/* --- 사이드바: 항상 펼쳐진 상태로 고정(접기 버튼 숨김 + 강제 표시) --- */
-[data-testid="stSidebar"] {
-  background: var(--color-pearl);
-  border-right: 1px solid var(--color-hairline);
-  min-width: 260px !important;
-  width: 260px !important;
-  transform: none !important;
-  visibility: visible !important;
-  margin-left: 0 !important;
-}
-[data-testid="stSidebarCollapseButton"] { display: none !important; }
-[data-testid="stSidebar"] [data-testid="stMainBlockContainer"] { max-width: none; padding-top: 2rem; }
-
-/* --- 타이포 --- */
-h1, h2, h3 {
-  font-family: var(--font-display) !important;
-  font-weight: 600 !important;
-  letter-spacing: -0.028em !important;
-  color: var(--color-ink) !important;
-}
-.hero-title {
-  font-family: var(--font-display);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  font-size: 2.4rem;
-  color: var(--color-ink);
-  margin-bottom: 4px;
-}
-.hero-lead {
-  font-family: var(--font-body);
-  font-weight: 400;
-  font-size: 1.05rem;
-  color: var(--color-ink-muted-48);
-  margin-bottom: 20px;
-}
-[data-testid="stCaptionContainer"] {
-  color: var(--color-ink-muted-48) !important;
-  letter-spacing: -0.01em;
-}
-
-/* --- 공지 바(디스클레이머) --- */
-.notice-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--color-canvas);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
-  padding: 10px 16px;
-  margin-bottom: 28px;
-  font-size: 12.5px;
-  color: var(--color-ink-muted-80);
-  letter-spacing: -0.12px;
-}
-
-/* --- 버튼 그래머 --- */
-[data-testid="stBaseButton-primary"] {
-  background: var(--color-primary) !important;
-  color: #ffffff !important;
-  border: none !important;
-  border-radius: var(--radius-pill) !important;
-  padding: 11px 26px !important;
-  font-weight: 400 !important;
-  transition: transform .15s ease, background .15s ease;
-}
-[data-testid="stBaseButton-primary"]:hover { background: var(--color-primary-focus) !important; }
-[data-testid="stBaseButton-primary"]:active { transform: scale(0.95); }
-[data-testid="stBaseButton-primary"]:disabled {
-  background: var(--color-hairline) !important;
-  color: var(--color-ink-muted-48) !important;
-}
-[data-testid="stBaseButton-secondary"] {
-  background: transparent !important;
-  color: var(--color-ink-muted-48) !important;
-  border: 1px solid var(--color-divider-soft) !important;
-  border-radius: var(--radius-pill) !important;
-  font-weight: 400 !important;
-  font-size: 13px !important;
-  padding: 6px 14px !important;
-  transition: transform .15s ease, color .15s ease, border-color .15s ease;
-}
-[data-testid="stBaseButton-secondary"]:hover {
-  color: var(--color-primary) !important;
-  border-color: var(--color-primary) !important;
-}
-[data-testid="stBaseButton-secondary"]:active { transform: scale(0.95); }
-
-/* --- 입력창 --- */
-[data-testid="stTextArea"] textarea {
-  border-radius: var(--radius-md) !important;
-  border: 1px solid var(--color-hairline) !important;
-  font-family: var(--font-body) !important;
-  font-size: 16px !important;
-  color: var(--color-ink) !important;
-  background: var(--color-pearl) !important;
-}
-[data-testid="stTextArea"] textarea:focus {
-  border-color: var(--color-primary) !important;
-  box-shadow: 0 0 0 1px var(--color-primary) !important;
-}
-
-/* --- 카드 (입력 카드 + 결과 카드 공통) --- */
-[data-testid="stVerticalBlockBorderWrapper"] {
-  border-radius: var(--radius-lg) !important;
-  border-color: var(--color-hairline) !important;
-  background: var(--color-canvas);
-}
-.card-eyebrow {
-  font-family: var(--font-body);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-primary);
-  margin-bottom: 2px;
-}
-
-/* --- 예시 키워드 칩 --- */
-.apple-chip-row { margin: 2px 0 0 0; line-height: 1.9; }
-.apple-chip {
-  display: inline-block;
-  background: transparent;
-  color: var(--color-ink-muted-48);
-  border: 1px solid var(--color-divider-soft);
-  border-radius: var(--radius-pill);
-  padding: 5px 12px;
-  margin: 4px 8px 4px 0;
-  font-size: 12.5px;
-  font-family: var(--font-body);
-}
-
-/* --- 판정 배지 --- */
-.apple-badge {
-  display: inline-block;
-  color: #ffffff;
-  padding: 4px 14px;
-  border-radius: var(--radius-pill);
-  font-weight: 600;
-  font-size: 15px;
-  letter-spacing: -0.01em;
-}
-
-/* --- 푸터 --- */
-.app-footer {
-  margin-top: 56px;
-  padding: 24px 4px 8px 4px;
-  border-top: 1px solid var(--color-hairline);
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--color-ink-muted-48);
-}
-</style>
-        """,
-        unsafe_allow_html=True,
-    )
+    값은 코드가 아니라 `static/apple.css`에 있다. 색상·간격·타이포는 화면 로직과
+    다른 이유로 바뀌므로 같은 파일에 두면 한쪽을 고칠 때마다 다른 쪽 diff를 읽어야
+    한다. 읽기는 한 번만 하고 프로세스 수명 동안 재사용한다.
+    """
+    st.markdown(f"<style>{_load_css()}</style>", unsafe_allow_html=True)
 
 
 def _parse_llm_json(raw: str):
-    """Agent 1 출력에서 JSON 부분만 뽑아 파싱(코드펜스 등 잡텍스트 방어)."""
+    """LLM 파서 출력에서 JSON 부분만 뽑아 파싱(코드펜스 등 잡텍스트 방어)."""
     if not raw:
         return None
     text = raw.strip()
@@ -344,7 +138,7 @@ PARSED_FIELD_LABELS = {
 }
 
 def _render_parsed_info(parsed: dict):
-    """Agent 1 파싱 결과를 원본 JSON 대신 사람이 읽기 쉬운 표로 보여준다."""
+    """파싱 결과를 원본 JSON 대신 사람이 읽기 쉬운 표로 보여준다."""
     rows = []
     for key, (label, unit) in PARSED_FIELD_LABELS.items():
         if key not in parsed:
@@ -373,67 +167,21 @@ def _render_ineligible_reasons(reasons: dict):
             st.markdown(f"- {r}")
 
 
+def _withheld_message(payload: dict) -> str:
+    """안내문이 공개되지 않은 이유를 상태별로 알려준다."""
+    status = payload.get("status")
+    if status == "REVIEW_REQUIRED":
+        failed = [k for k, v in (payload.get("eval_result") or {}).items() if v is False]
+        detail = f" (미달 지표: {', '.join(failed)})" if failed else ""
+        return f"생성된 안내문이 품질 검사를 통과하지 못해 공개하지 않았습니다{detail}. 다시 시도해보세요."
+    if status == "FAILED":
+        return "안내문 생성이 실패했습니다. 잠시 후 다시 시도해주세요."
+    return "안내문이 아직 준비되지 않았습니다."
+
+
 def _badge_html(verdict: str) -> str:
     color = BADGE_COLOR.get(verdict, "#6b7280")
     return f"<span class='apple-badge' style='background:{color};'>{verdict}</span>"
-
-
-def _run_pipeline(customer_input: str, api_key: str = None) -> dict:
-    """crewai Task의 callback은 crewai 내부 스레드(ThreadPoolExecutor)에서 실행되므로,
-    거기서 Streamlit API(st.status 등)를 직접 부르면 ScriptRunContext가 없어 그 콜백이
-    죽어버리고 crewai가 이를 Task Failure로 처리한다. 그래서 콜백은 스레드 안전한
-    queue.Queue에만 값을 넣고, 실제 st.status 업데이트는 메인 스레드(여기)에서
-    큐를 폴링하며 처리한다.
-    api_key를 방문자별 키로 파이프라인에 그대로 전달한다."""
-    stage_queue: "queue.Queue" = queue.Queue()
-    outcome: dict = {}
-
-    def on_stage(stage, output):
-        stage_queue.put(stage)
-
-    def worker():
-        try:
-            outcome["result"] = asyncio.run(
-                core.run_service_with_stages(customer_input, on_stage=on_stage, api_key=api_key)
-            )
-        except Exception as e:  # noqa: BLE001 - 메인 스레드로 예외를 그대로 전달
-            outcome["error"] = e
-
-    status = st.status(STAGE_LABEL["parse"], expanded=True)
-    # [타팀 피드백-1] 대기 중 로테이션 팁을 표시할 자리 — Agent 2 대기 체감을 줄인다.
-    tip_slot = status.empty()
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-
-    # [타팀 피드백-1] 팁 로테이션 상태(약 4초마다 다음 팁으로 교체). 기존 큐 폴링 루프에 얹어
-    #   추가 스레드·비용 없이 대기 화면에 유용한 정보를 흘려보낸다.
-    tip_idx = 0
-    next_tip_at = 0.0
-    TIP_INTERVAL = 4.0
-
-    while thread.is_alive() or not stage_queue.empty():
-        now = time.monotonic()
-        if now >= next_tip_at:
-            tip_slot.caption(AGENT_TIPS[tip_idx % len(AGENT_TIPS)])
-            tip_idx += 1
-            next_tip_at = now + TIP_INTERVAL
-        try:
-            stage = stage_queue.get(timeout=0.2)
-        except queue.Empty:
-            continue
-        status.write(f"완료: {STAGE_LABEL.get(stage, stage)}")
-        nxt = STAGE_NEXT.get(stage)
-        if nxt:
-            status.update(label=STAGE_LABEL[nxt])
-    thread.join()
-    tip_slot.empty()  # 완료되면 팁 자리를 비운다
-
-    if "error" in outcome:
-        status.update(label="오류 발생", state="error")
-        raise outcome["error"]
-
-    status.update(label="심사 완료", state="complete", expanded=False)
-    return outcome["result"]
 
 
 def _usage_value(usage, field: str):
@@ -461,7 +209,7 @@ def _render_usage_cost(out: dict):
     input_tokens = _usage_value(usage, "prompt_tokens")
     output_tokens = _usage_value(usage, "completion_tokens")
     st.caption(
-        f"이번 3-Agent 실행 토큰: 입력 {input_tokens:,} · 출력 {output_tokens:,} · "
+        f"이번 안내문 실행 토큰: 입력 {input_tokens:,} · 출력 {output_tokens:,} · "
         f"추정 API 비용 ${cost:.6f}"
     )
     st.caption(
@@ -476,7 +224,7 @@ def _render_result(out: dict, screen: dict = None):
     #   → 화면 배지·적격상품이 LLM 재파싱이 아니라 '사용자가 확정한 구조화 입력'과 일치(A1 이중경로 해소).
     with st.container(border=True):
         st.markdown("<div class='card-eyebrow'>STEP 1</div>", unsafe_allow_html=True)
-        st.subheader("Agent 1 — 파싱 결과")
+        st.subheader("입력 해석 — 규칙 파서 · LLM 파서 대조")
         parsed = _parse_llm_json(out.get("파싱결과"))
         if parsed:
             _render_parsed_info(parsed)
@@ -485,7 +233,7 @@ def _render_result(out: dict, screen: dict = None):
 
     with st.container(border=True):
         st.markdown("<div class='card-eyebrow'>STEP 2</div>", unsafe_allow_html=True)
-        st.subheader("Agent 2 — 심사 결과")
+        st.subheader("적합성 판정 — 결정적 규칙 (LLM 미개입)")
         if parsed is not None or screen is not None:
             if screen is None:
                 screen = core.screen_loan(parsed)
@@ -538,15 +286,15 @@ def _render_result(out: dict, screen: dict = None):
             with st.expander("부적격 사유 보기"):
                 _render_ineligible_reasons(screen["부적격사유"])
         else:
-            st.warning("Agent 1의 출력을 JSON으로 해석하지 못해, 결정적 심사 결과(배지·적격상품)를 계산할 수 없습니다.")
+            st.warning("파싱 결과를 JSON으로 해석하지 못해, 결정적 심사 결과(배지·적격상품)를 계산할 수 없습니다.")
 
         if out.get("심사결과"):
-            with st.expander("Agent 2 CoT·SC 원문 근거 보기"):
+            with st.expander("판정 근거 원문 보기"):
                 st.write(out["심사결과"])
 
     with st.container(border=True):
         st.markdown("<div class='card-eyebrow'>STEP 3</div>", unsafe_allow_html=True)
-        st.subheader("Agent 3 — 최종 안내문")
+        st.subheader("고객 안내문 — LLM 생성 · 공개 전 검사 통과분")
         if out.get("안내문"):
             st.markdown(out["안내문"])
             st.download_button(
@@ -609,11 +357,10 @@ def _submit_assessment(customer: dict) -> dict:
         "employment_type": customer["직장유형"],
         "collateral_owned": customer["담보보유"],
     }
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     response = httpx.post(
         f"{API_BASE_URL}/api/v1/assessments",
         json=payload,
-        headers={"Idempotency-Key": str(uuid.uuid5(uuid.NAMESPACE_URL, canonical))},
+        headers={"Idempotency-Key": str(uuid.uuid4())},
         timeout=10.0,
     )
     response.raise_for_status()
@@ -624,14 +371,26 @@ def _screen_from_assessment(assessment: dict) -> dict:
     """API의 안정된 영문 계약을 기존 화면 표시용 최소 구조로 바꾼다."""
     labels = {"ELIGIBLE": "승인가능", "CONDITIONAL": "상담필요", "INELIGIBLE": "어려움"}
     bands = {"COMFORTABLE": "여유", "MODERATE": "보통", "STRAINED": "부족"}
+    decision = assessment["decision"]
+    candidates = [
+        {
+            "상품코드": row["product_code"],
+            "상품명": row["product_name"],
+            "은행": row["bank"],
+            "금리범위": row["interest_rate_range"],
+            "최대한도": row["maximum_limit"],
+        }
+        for row in assessment["recommendations"]
+        if row["eligible"]
+    ]
     return {
-        "판정": labels[assessment["verdict"]],
-        "상환능력": bands[assessment["repayment_band"]],
-        "DSR": assessment["dsr"],
-        "월상환액": assessment["monthly_payment"],
-        "추천상품": None,
-        "추천후보": [],
-        "적격상품": [],
+        "판정": labels[decision["verdict"]],
+        "상환능력": bands[decision["repayment_band"]],
+        "DSR": decision["dsr"],
+        "월상환액": decision["monthly_payment"],
+        "추천상품": candidates[0] if candidates else None,
+        "추천후보": candidates,
+        "적격상품": candidates,
         "부적격사유": {},
     }
 
@@ -674,14 +433,13 @@ COOLDOWN_SEC = 5              # 연속 실행 최소 간격(쿨다운)
 
 
 def _effective_api_key():
-    """이 세션에서 실제 파이프라인 실행에 쓸 키를 결정한다.
-    우선순위: 방문자가 사이드바에 입력한 키(세션 메모리) > 서버 환경변수(.env/secrets).
-    방문자 키는 session_state에만 두고 os.environ에 넣지 않는다
-    (공유 프로세스에서 타 방문자에게 새지 않도록). 없으면 None."""
+    """방문자가 입력한 키만 세션 메모리에서 꺼낸다.
+
+    서버 키는 워커의 비동기 경로 전용이다. UI가 이를 헤더로 넘기면 키 출처에 따른
+    실행 주체를 가른 ADR-024 §24-R을 우회하게 되므로 여기서 폴백하지 않는다.
+    """
     visitor = (st.session_state.get("visitor_key") or "").strip()
-    if visitor:
-        return visitor
-    return os.getenv("OPENAI_API_KEY") or None
+    return visitor or None
 
 
 def main():
@@ -791,7 +549,7 @@ def main():
         except httpx.HTTPError:
             st.error("심사 서비스에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
 
-    # ④-b AI 안내문까지 (키 필요) — 구조화 값을 표준 문장으로 만들어 파이프라인에 투입.
+    # ④-b AI 안내문까지 (키 필요) — 심사가 만든 PENDING 행을 app이 동기 실행한다.
     if run_clicked and not missing:
         now = time.monotonic()
         last_ts = st.session_state.get("last_run_ts", 0.0)
@@ -801,17 +559,38 @@ def main():
             st.warning(f"연속 실행을 제한합니다. {COOLDOWN_SEC - int(now - last_ts)}초 후 다시 시도해주세요.")
         else:
             try:
-                nl = _customer_to_nl(customer)
-                st.session_state.last_result = _run_pipeline(nl, api_key=api_key)
-                st.session_state.last_screen = _screen_from_assessment(_submit_assessment(customer))
-                st.session_state.last_input = nl
+                assessment = _submit_assessment(customer)
+                run = httpx.post(
+                    f"{API_BASE_URL}/api/v1/assessments/{assessment['assessment_id']}/explanation-runs",
+                    headers={"X-OpenAI-API-Key": api_key},
+                    # 서버 상한(ADR-022의 200초)보다 바깥 계층이 길어야 한다. 같게 두면
+                    # 서버가 상한을 넘겨 503을 만드는 그 순간 클라이언트가 먼저 끊어,
+                    # 정작 준비해 둔 503 안내가 화면에 도달하지 못한다.
+                    timeout=core.EXPLANATION_RUN_TIMEOUT_SECONDS + CLIENT_TIMEOUT_MARGIN_SEC,
+                )
+                run.raise_for_status()
+                payload = run.json()
+                # Eval을 통과하지 못한 안내문은 저장되지 않으므로(ADR-007) 본문이
+                # 비어 온다. 그대로 렌더하면 방문자는 토큰을 쓰고도 아무 설명 없는
+                # 빈 화면을 본다 — 검증에서 걸렸다는 사실 자체를 알려야 한다.
+                if not payload.get("explanation_text"):
+                    st.warning(_withheld_message(payload))
+                st.session_state.last_result = {
+                    "파싱결과": json.dumps(customer, ensure_ascii=False),
+                    "심사결과": None,
+                    "안내문": payload.get("explanation_text"),
+                    "usage": {
+                        "prompt_tokens": payload.get("input_tokens"),
+                        "completion_tokens": payload.get("output_tokens"),
+                    },
+                }
+                st.session_state.last_screen = _screen_from_assessment(assessment)
+                st.session_state.last_input = _customer_to_nl(customer)
                 st.session_state.is_demo = False
                 st.session_state.run_count = run_count + 1
                 st.session_state.last_run_ts = now
-            except Exception as e:
-                st.error(f"⚠️ {_friendly_error_message(e)}")
-                with st.expander("자세한 오류 내용 보기"):
-                    st.code(str(e))
+            except Exception:
+                st.error("⚠️ AI 안내문 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
     if st.session_state.get("last_result"):
         # 사전 녹화 결과일 때 명확히 고지(실제 실행과 구분).

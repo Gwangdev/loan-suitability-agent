@@ -12,9 +12,32 @@ import concurrent.futures
 import datetime
 import uuid
 
+import pytest
+from types import SimpleNamespace
+
 from sqlalchemy.orm import Session
 
 from loan_agent.db import models
+
+
+
+class _StubSession:
+    """execute_claimed_run이 여는 읽기 세션 대역. 행 조회만 하면 되므로 얇게 둔다."""
+
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def get(self, _model, _pk):
+        return SimpleNamespace(id=uuid.uuid4(), assessment_id=uuid.uuid4())
+
+    def expunge(self, _obj):
+        pass
 
 
 def _session(engine) -> Session:
@@ -38,6 +61,35 @@ def _pending_case(session, verdict="ELIGIBLE"):
     session.add(run)
     session.flush()
     return case, run
+
+
+def test_generate_explanation_uses_one_guidance_call_with_persisted_context(monkeypatch):
+    """안내문은 저장된 판정·DSR·상품 상세만 주입한 한 번의 LLM 호출이어야 한다."""
+    from loan_agent import core, llm, worker
+
+    context = {
+        "verdict": "ELIGIBLE",
+        "dsr": 0.083,
+        "recommendations": [{"상품코드": "A-02", "상품명": "프리미엄대출", "은행": "A은행", "금리범위": "3.0%~5.5%", "최대한도": 100_000_000}],
+    }
+    captured = {}
+
+    async def guidance(payload, *, api_key=None):
+        captured.update(payload=payload, api_key=api_key)
+        return {
+            "text": "검토 결과 승인 가능한 것으로 판단됩니다(데모 기준). " + core.DISCLAIMER,
+            "model_name": "test-model",
+            "usage": {"prompt_tokens": 12, "completion_tokens": 7},
+        }
+
+    monkeypatch.setattr(worker, "_guidance_context", lambda _id: context)
+    monkeypatch.setattr(llm, "generate_guidance", guidance)
+
+    explanation = worker.generate_explanation(SimpleNamespace(id=uuid.uuid4()), api_key="test")
+
+    assert captured == {"payload": context, "api_key": "test"}
+    assert explanation.text.endswith(core.DISCLAIMER)
+    assert explanation.model_name == "test-model"
 
 
 def test_claim_takes_one_pending_run(api_db):
@@ -212,3 +264,55 @@ def test_fresh_running_is_left_alone(api_db):
 
     with _session(api_db) as session:
         assert session.get(models.ExplanationRun, run_id).status == "RUNNING"
+
+
+def test_provider_timeout_on_the_worker_path_does_not_crash_the_loop(monkeypatch):
+    """워커 경로의 타임아웃은 행에 기록되고 조용히 끝나야 한다.
+
+    예전에는 타임아웃 분기에 return이 없어 아래로 흘러내렸고, 할당된 적 없는
+    explanation을 읽어 UnboundLocalError가 났다. 그 예외는 run_once를 거쳐 main()의
+    루프까지 올라가 워커 프로세스를 종료시킨다 — 제공자가 한 번 느려지면 서버 키
+    경로가 통째로 멈춘다.
+    """
+    from loan_agent import worker
+
+    finished = []
+    monkeypatch.setattr(worker, "generate_explanation",
+                        lambda *_a, **_k: (_ for _ in ()).throw(TimeoutError("provider")))
+    monkeypatch.setattr(worker, "_finish",
+                        lambda run_id, exp, score, code, ms: finished.append(code))
+    monkeypatch.setattr(worker, "Session", _StubSession)
+    monkeypatch.setattr(worker.db_engine, "get_engine", lambda: None)
+
+    worker.execute_claimed_run(uuid.uuid4())
+
+    assert finished == ["PROVIDER_TIMEOUT"]
+
+
+def test_provider_timeout_on_the_visitor_path_still_raises(monkeypatch):
+    """동기 경로는 같은 타임아웃을 예외로 올려 API가 503을 낼 수 있어야 한다."""
+    from loan_agent import worker
+
+    monkeypatch.setattr(worker, "generate_explanation",
+                        lambda *_a, **_k: (_ for _ in ()).throw(TimeoutError("provider")))
+    monkeypatch.setattr(worker, "_finish", lambda *_a, **_k: None)
+    monkeypatch.setattr(worker, "Session", _StubSession)
+    monkeypatch.setattr(worker.db_engine, "get_engine", lambda: None)
+
+    with pytest.raises(worker.ExplanationTimedOut):
+        worker.execute_claimed_run(uuid.uuid4(), api_key="k", raise_timeout=True)
+
+
+def test_usage_tokens_reads_objects_and_dicts(monkeypatch):
+    """토큰은 crewai 객체에서도 읽혀야 한다.
+
+    예전 추출식은 dict일 때만 동작해 실제 실행(UsageMetrics 객체)에서는 두 값이
+    항상 None이었다. 픽스처는 dict라 테스트만으로는 드러나지 않던 자리다.
+    """
+    from types import SimpleNamespace
+    from loan_agent import worker
+
+    assert worker._usage_tokens(None) == (None, None)
+    assert worker._usage_tokens({"prompt_tokens": 3, "completion_tokens": 4}) == (3, 4)
+    obj = SimpleNamespace(prompt_tokens=11, completion_tokens=22)
+    assert worker._usage_tokens(obj) == (11, 22)

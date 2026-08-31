@@ -1,0 +1,209 @@
+:root {
+  --color-primary: #0066cc;
+  --color-primary-focus: #0071e3;
+  --color-ink: #1d1d1f;
+  --color-ink-muted-80: #333333;
+  --color-ink-muted-48: #7a7a7a;
+  --color-canvas: #ffffff;
+  --color-parchment: #f5f5f7;
+  --color-pearl: #fafafc;
+  --color-hairline: #e0e0e0;
+  --color-divider-soft: #f0f0f0;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", system-ui, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  --radius-sm: 8px;
+  --radius-md: 11px;
+  --radius-lg: 18px;
+  --radius-pill: 9999px;
+}
+
+/* --- Streamlit 기본 크롬 제거: 실제 제품처럼 보이게 --- */
+html, body { margin: 0 !important; padding: 0 !important; }
+[data-testid="stAppHeader"],
+[data-testid="stToolbar"],
+[data-testid="stAppToolbar"],
+[data-testid="stMainMenu"],
+[data-testid="stStatusWidget"],
+[data-testid="stAppDeployButton"],
+[data-testid="stDecoration"],
+#MainMenu, footer {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+[data-testid="stAppViewContainer"] {
+  padding-top: 0 !important;
+}
+
+/* --- 캔버스 & 컨테이너 --- */
+html, body, #root,
+[data-testid="stAppViewContainer"],
+[data-testid="stApp"],
+[data-testid="stMain"],
+.stApp {
+  background: var(--color-parchment) !important;
+}
+[data-testid="stMainBlockContainer"] {
+  max-width: 900px;
+  margin: 0 auto;
+  padding-top: 2.5rem;
+  padding-bottom: 4rem;
+}
+[data-testid="stAppViewContainer"], [data-testid="stSidebar"], .stMarkdown, p, span, li, label, div {
+  font-family: var(--font-body);
+}
+
+/* --- 사이드바: 항상 펼쳐진 상태로 고정(접기 버튼 숨김 + 강제 표시) --- */
+[data-testid="stSidebar"] {
+  background: var(--color-pearl);
+  border-right: 1px solid var(--color-hairline);
+  min-width: 260px !important;
+  width: 260px !important;
+  transform: none !important;
+  visibility: visible !important;
+  margin-left: 0 !important;
+}
+[data-testid="stSidebarCollapseButton"] { display: none !important; }
+[data-testid="stSidebar"] [data-testid="stMainBlockContainer"] { max-width: none; padding-top: 2rem; }
+
+/* --- 타이포 --- */
+h1, h2, h3 {
+  font-family: var(--font-display) !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.028em !important;
+  color: var(--color-ink) !important;
+}
+.hero-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-size: 2.4rem;
+  color: var(--color-ink);
+  margin-bottom: 4px;
+}
+.hero-lead {
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 1.05rem;
+  color: var(--color-ink-muted-48);
+  margin-bottom: 20px;
+}
+[data-testid="stCaptionContainer"] {
+  color: var(--color-ink-muted-48) !important;
+  letter-spacing: -0.01em;
+}
+
+/* --- 공지 바(디스클레이머) --- */
+.notice-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  margin-bottom: 28px;
+  font-size: 12.5px;
+  color: var(--color-ink-muted-80);
+  letter-spacing: -0.12px;
+}
+
+/* --- 버튼 그래머 --- */
+[data-testid="stBaseButton-primary"] {
+  background: var(--color-primary) !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: var(--radius-pill) !important;
+  padding: 11px 26px !important;
+  font-weight: 400 !important;
+  transition: transform .15s ease, background .15s ease;
+}
+[data-testid="stBaseButton-primary"]:hover { background: var(--color-primary-focus) !important; }
+[data-testid="stBaseButton-primary"]:active { transform: scale(0.95); }
+[data-testid="stBaseButton-primary"]:disabled {
+  background: var(--color-hairline) !important;
+  color: var(--color-ink-muted-48) !important;
+}
+[data-testid="stBaseButton-secondary"] {
+  background: transparent !important;
+  color: var(--color-ink-muted-48) !important;
+  border: 1px solid var(--color-divider-soft) !important;
+  border-radius: var(--radius-pill) !important;
+  font-weight: 400 !important;
+  font-size: 13px !important;
+  padding: 6px 14px !important;
+  transition: transform .15s ease, color .15s ease, border-color .15s ease;
+}
+[data-testid="stBaseButton-secondary"]:hover {
+  color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+}
+[data-testid="stBaseButton-secondary"]:active { transform: scale(0.95); }
+
+/* --- 입력창 --- */
+[data-testid="stTextArea"] textarea {
+  border-radius: var(--radius-md) !important;
+  border: 1px solid var(--color-hairline) !important;
+  font-family: var(--font-body) !important;
+  font-size: 16px !important;
+  color: var(--color-ink) !important;
+  background: var(--color-pearl) !important;
+}
+[data-testid="stTextArea"] textarea:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 1px var(--color-primary) !important;
+}
+
+/* --- 카드 (입력 카드 + 결과 카드 공통) --- */
+[data-testid="stVerticalBlockBorderWrapper"] {
+  border-radius: var(--radius-lg) !important;
+  border-color: var(--color-hairline) !important;
+  background: var(--color-canvas);
+}
+.card-eyebrow {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+  margin-bottom: 2px;
+}
+
+/* --- 예시 키워드 칩 --- */
+.apple-chip-row { margin: 2px 0 0 0; line-height: 1.9; }
+.apple-chip {
+  display: inline-block;
+  background: transparent;
+  color: var(--color-ink-muted-48);
+  border: 1px solid var(--color-divider-soft);
+  border-radius: var(--radius-pill);
+  padding: 5px 12px;
+  margin: 4px 8px 4px 0;
+  font-size: 12.5px;
+  font-family: var(--font-body);
+}
+
+/* --- 판정 배지 --- */
+.apple-badge {
+  display: inline-block;
+  color: #ffffff;
+  padding: 4px 14px;
+  border-radius: var(--radius-pill);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+/* --- 푸터 --- */
+.app-footer {
+  margin-top: 56px;
+  padding: 24px 4px 8px 4px;
+  border-top: 1px solid var(--color-hairline);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-ink-muted-48);
+}

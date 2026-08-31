@@ -6,6 +6,7 @@
 테스트가 없으면 무증거로 남으므로(ADR-004) 함께 둔다.
 """
 import concurrent.futures
+from decimal import Decimal
 import uuid
 
 import pytest
@@ -52,12 +53,30 @@ def test_create_returns_deterministic_decision(api_db):
 
     assert r.status_code == 201
     body = r.json()
-    assert body["verdict"] == "ELIGIBLE"
-    assert body["dsr"] >= 0
-    assert body["rule_version"]
-    assert body["product_dataset_version"]
+    assert body["decision"]["verdict"] == "ELIGIBLE"
+    assert body["decision"]["dsr"] >= 0
+    assert body["decision"]["rule_version"]
+    assert body["decision"]["product_dataset_version"]
     assert body["recommendations"]
-    assert body["explanation_run"]["status"] == "PENDING"
+    assert body["recommendations"][0]["product_name"]
+    assert body["recommendations"][0]["bank"]
+    assert body["recommendations"][0]["interest_rate_range"]
+    assert body["recommendations"][0]["maximum_limit"]
+    assert body["explanation_runs"][0]["status"] == "PENDING"
+
+
+def test_dsr_round_trips_from_postgresql_as_decimal(api_db):
+    """Numeric 컬럼의 읽기 타입은 실제 DB 왕복 결과로 고정한다."""
+    r = client.post("/api/v1/assessments", json=VALID_BODY, headers={"Idempotency-Key": _key()})
+    assessment_id = r.json()["assessment_id"]
+
+    with api_db.connect() as conn:
+        dsr = conn.execute(
+            text("SELECT dsr FROM decision_result WHERE assessment_id = :id"),
+            {"id": assessment_id},
+        ).scalar()
+
+    assert isinstance(dsr, Decimal)
 
 
 def test_single_transaction_persists_every_row(api_db):
@@ -133,14 +152,29 @@ def test_llm_is_never_called_on_this_path(api_db, monkeypatch):
     def _boom(*_a, **_k):
         raise AssertionError("이 경로에서 LLM을 불러서는 안 된다")
 
-    monkeypatch.setattr("loan_agent.core.get_crew", _boom)
-    monkeypatch.setattr("loan_agent.core.build_fresh_crew", _boom)
-    monkeypatch.setattr("loan_agent.core.get_llm", _boom)
+    # 안내문 생성 진입점 두 곳만 막으면 된다. 3-Agent 파이프라인은 코드에서 삭제됐으므로
+    # 감시할 대상이 없고, 그 부재 자체를 아래에서 단언한다.
+    monkeypatch.setattr("loan_agent.llm.get_llm", _boom)
+    monkeypatch.setattr("loan_agent.llm.generate_guidance", _boom)
+    monkeypatch.setattr("loan_agent.llm.parse_with_llm", _boom)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     r = client.post("/api/v1/assessments", json=VALID_BODY, headers={"Idempotency-Key": _key()})
 
     assert r.status_code == 201
+
+
+def test_the_superseded_pipeline_is_gone_from_the_module():
+    """옛 3-Agent 진입점이 되살아나면 여기서 걸린다.
+
+    호출을 감시하는 것보다 부재를 단언하는 편이 강한 보장이다 — 감시는 그 경로를 지나갈
+    때만 작동하지만, 부재는 어느 경로에서도 부를 수 없다는 뜻이다(ADR-030).
+    """
+    from loan_agent import core
+
+    for name in ("get_crew", "build_fresh_crew", "run_service", "run_service_with_stages",
+                 "build_tasks", "build_reviewer_agent", "build_advisor_agent"):
+        assert not hasattr(core, name), f"삭제한 3-Agent 진입점이 되살아났다: {name}"
 
 
 def test_parallel_same_key_creates_exactly_one_assessment(api_db):

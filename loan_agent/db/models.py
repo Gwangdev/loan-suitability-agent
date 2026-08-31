@@ -9,6 +9,7 @@
 """
 import datetime
 import uuid
+from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
@@ -104,7 +105,9 @@ class DecisionResult(Base):
     )
     verdict: Mapped[str] = mapped_column(Text, nullable=False)
     repayment_band: Mapped[str] = mapped_column(Text, nullable=False)
-    dsr: Mapped[float] = mapped_column(Numeric, nullable=False)
+    # Numeric은 DB 왕복 시 Decimal을 돌려준다. 판정 계산은 float로 유지하되 저장 경계의
+    # 타입을 숨기지 않고, DSR 비교에 충분한 소수 12자리 정밀도를 명시한다(ADR-032).
+    dsr: Mapped[Decimal] = mapped_column(Numeric(18, 12), nullable=False)
     monthly_payment: Mapped[dict] = mapped_column(JSONB, nullable=False)
     rule_version: Mapped[str] = mapped_column(Text, nullable=False)
     product_dataset_version: Mapped[str] = mapped_column(Text, nullable=False)
