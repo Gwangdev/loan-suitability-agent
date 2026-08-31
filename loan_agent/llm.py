@@ -13,7 +13,9 @@ LLM이 관여하는 곳은 둘뿐이다. **입구**에서 자연어를 구조화
 Agent·Task를 캐시하지 않는다. 방문자마다 키가 다르므로 공유하면 남의 키로 도는 경로가
 생긴다. 키는 인자로만 흐르고 `os.environ`에 쓰지 않는다(금지 자동화 행위 7).
 """
+import json
 import os
+import re
 
 from loan_agent.core import DISCLAIMER
 

@@ -160,8 +160,10 @@ def _guidance_context(assessment_id: uuid.UUID) -> dict:
             .order_by(models.Recommendation.rank)
         ).scalars().all()
     return {
-        "verdict": decision_row.verdict,
-        "repayment_band": decision_row.repayment_band,
+        # 저장은 영문 enum이지만 이 값은 고객이 읽을 문장으로 들어간다. 한글 어휘로
+        # 되돌리지 않으면 모델이 그대로 직역한다(ADR-012).
+        "verdict": decision.VERDICT_LABEL.get(decision_row.verdict, decision_row.verdict),
+        "repayment_band": decision.BAND_LABEL.get(decision_row.repayment_band, decision_row.repayment_band),
         "dsr": float(decision_row.dsr),
         "recommendations": [row.reason_codes for row in recommendations],
     }

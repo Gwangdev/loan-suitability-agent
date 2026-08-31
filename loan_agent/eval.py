@@ -1,6 +1,6 @@
-"""LLM 3-Agent 출력 품질 평가 하네스 (API 키·토큰 불필요).
+"""LLM 출력 품질 평가 하네스 (API 키·토큰 불필요).
 
-사전 녹화된 3-Agent 출력(demo_fixtures.json)을 결정적 정답(screen_loan)과
+사전 녹화된 출력(demo_fixtures.json)을 결정적 정답(screen_loan)과
 대조해 정량 채점한다. LLM을 재호출하지 않으므로 비용 0·완전 재현 가능하며, CI에서도 돌릴 수 있다.
 "안내문이 판정과 어긋나지 않는가 / CSV 밖 수치를 지어내지 않는가 / 디스클레이머를 지키는가"처럼
 프롬프트 설계의 안전 목표를 지표로 만들어, 프롬프트를 바꿨을 때 품질이 오르내리는지 측정한다.
@@ -155,11 +155,21 @@ def score_case(case: dict) -> dict:
     allowed_pct, allowed_won = set(), set()
     allowed_won.update(v for v in [parsed_gt.get("월소득"), parsed_gt.get("부채"),
                                    parsed_gt.get("희망금액")] if v)
-    if rec is not None:
-        lo, hi = rec["금리범위"].replace("%", "").split("~")
-        allowed_pct.update({float(lo), float(hi)})
-        allowed_pct.add(rec.get("중도상환수수료"))
-        allowed_won.add(rec["최대한도"])
+    # 안내문 경로에 주입되는 것은 최상위 추천 하나가 아니라 적격 상품 전체다(ADR-025·030).
+    # 근거 집합을 최상위 하나로 잡으면, 모델이 실제로 받은 CSV 값을 인용해도 환각으로
+    # 채점된다. 근거는 「모델에게 실제로 준 것」이어야 한다 — 넓히는 것이 아니라 맞추는 것이다.
+    # 적격상품은 코드·이름·은행만 담은 요약이고, 금리·한도를 가진 것은 추천후보다.
+    # 안내문 경로에 주입되는 것도 추천후보이므로 근거는 여기서 만든다.
+    grounded = list(screen.get("추천후보") or [])
+    if rec is not None and rec not in grounded:
+        grounded.append(rec)
+    for item in grounded:
+        범위 = item.get("금리범위")
+        if 범위:
+            lo, hi = 범위.replace("%", "").split("~")
+            allowed_pct.update({float(lo), float(hi)})
+        allowed_pct.add(item.get("중도상환수수료"))
+        allowed_won.add(item.get("최대한도"))
     if screen.get("DSR") is not None:
         allowed_pct.add(round(screen["DSR"] * 100, 1))
     allowed_pct.discard(None)
@@ -214,7 +224,7 @@ def run_eval_selftest(fixtures: dict = None) -> bool:
     """평가 하네스를 실행해 표로 출력한다(키 불필요). 전 지표 통과 시 True."""
     report = run_eval(fixtures)
     print("=" * 72)
-    print("LLM 3-Agent 출력 품질 평가 (사전 녹화 출력 채점 · API 비용 0)")
+    print("LLM 출력 품질 평가 (사전 녹화 출력 채점 · API 비용 0)")
     print(f"모델: {report['model']}  생성: {report['generated_at']}")
     print("=" * 72)
     header = "케이스".ljust(16) + "".join(m[:6].rjust(8) for m in METRICS) + "   점수"

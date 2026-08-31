@@ -30,6 +30,13 @@ _BAND_BY_LABEL = {
 }
 
 
+# 화면·안내문은 한글 어휘를 쓴다(ADR-012). 저장은 영문 enum이므로 사용자에게 나가는
+# 경로에서는 되돌려야 한다. 되돌리지 않으면 LLM이 ELIGIBLE을 "적격", COMFORTABLE을
+# "편안한"으로 직역해 도메인 어휘와 어긋난 안내문이 나간다.
+VERDICT_LABEL = {v: k for k, v in _VERDICT_BY_LABEL.items()}
+BAND_LABEL = {v: k for k, v in _BAND_BY_LABEL.items()}
+
+
 def product_dataset_version() -> str:
     """현재 상품 CSV의 내용 해시. 파일이 한 글자라도 바뀌면 값이 달라진다."""
     digest = hashlib.sha256(core.CSV_PATH.read_bytes()).hexdigest()

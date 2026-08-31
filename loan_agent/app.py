@@ -478,7 +478,7 @@ def main():
                 on_click=_fill_input, args=(tc["input"],),
             )
 
-        # 키가 없는 방문자도 '입력 → 실제 3-Agent 출력'을
+        # 키가 없는 방문자도 '입력 → 실제 출력'을
         #   토큰 소모 0으로 볼 수 있는 사전 녹화 결과 버튼.
         demo_cases = _demo_fixtures().get("cases", [])
         if demo_cases:
@@ -598,7 +598,7 @@ def main():
             fx = _demo_fixtures()
             st.info(
                 f"📽️ **사전 녹화된 데모 결과입니다 — 토큰이 전혀 소모되지 않았습니다.** "
-                f"실제 3-Agent 파이프라인을 미리 1회 실행해 저장한 입력/출력이며, "
+                f"실제 파이프라인을 미리 1회 실행해 저장한 입력/출력이며, "
                 f"직접 실행하려면 사이드바에 본인 OpenAI 키를 입력하세요. "
                 f"(생성 모델: {fx.get('model', 'N/A')})"
             )

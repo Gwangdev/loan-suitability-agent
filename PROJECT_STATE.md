@@ -81,7 +81,7 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…033)**
 4. **AWS deploy** — ADR-031. **TLS gates the visitor-key feature.**
 5. **README last** (#13) — it can only state facts once 1–4 land.
 
-**Blocked on the user (owner key required):** `demo_fixtures.json` is still 3-Agent-shaped output. Regenerating it also flips the 7 remaining "3-Agent" comments (#37) — same commit.
+**Fixtures regenerated 2026-08-31** with the owner key; #37 closed, zero "3-Agent" references left in `loan_agent/`. Eval back to **90/90** after fixing two real defects the regeneration exposed (#50 English enums leaking into user-facing text, #51 scorer grounded on the top product only) and one refactor break (#49 missing imports, now guarded by a name-resolution test). **#52 is the headline: the dual parser caught a 10x amount error the LLM made** — evidence for ADR-029 that is data, not narration.
 
 **Missing measurement:** ADR-030 per-stage timing was never reported and the instrument died with #33. Measure total single-call latency instead.
 
