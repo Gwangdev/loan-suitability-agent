@@ -1,0 +1,99 @@
+# project.yaml 기준 스키마 예시. 값은 실제 증거에서만 채운다.
+#
+# status 매핑 규칙 (/verify 판정 → project.status)
+#   완료             -> completed
+#   조건부 완료      -> verified      (검증은 통과했으나 조건이 남음. completed로 올리지 않는다)
+#   배포 보류        -> verified
+#   검증 필요        -> development
+#   개발 중          -> development
+#   사용자 결정 필요 -> development
+#   (미착수)         -> planning
+# 판정을 상향 변환하지 않는다. 조건부 완료를 completed로 쓰지 않는다.
+# 조건·보류 사유는 limitations에 반드시 기재한다.
+project:
+  name: ""
+  one_line: ""
+  status: planning # planning | development | verified | completed | paused
+  status_source: "" # /verify 원본 판정 문자열을 그대로 보존
+  period:
+    start: ""
+    end: null
+  team:
+    size: null
+    my_role: []
+    shared_work: []
+  problem:
+    background: ""
+    target_user: ""
+    pain_point: ""
+  implementation:
+    features: []
+    tech_stack: []
+    architecture: []
+
+  # 검토한 대안에도 증거를 요구한다. 근거가 없으면 "검토했다"고 쓰지 않는다.
+  decisions:
+    - title: ""
+      choice: ""
+      reason: ""
+      alternatives_considered:
+        - option: ""
+          rejected_reason: ""
+          evidence: []      # 비어 있으면 confidence: uncertain 처리. 실제로 검토한 흔적이 있어야 한다.
+      evidence: []
+
+  # 현상→가설→검증→원인→해결→재발 방지
+  # 추측(hypothesis)과 확인된 원인(cause)을 반드시 분리한다.
+  troubleshooting:
+    - title: ""
+      symptom: ""              # 현상. 재현 조건을 포함한다.
+      reproduction: ""         # 재현 절차·환경
+      hypotheses:              # 세운 가설과 검증 결과. 틀린 가설도 남긴다.
+        - guess: ""
+          test: ""
+          result: ""           # confirmed | rejected
+      cause: ""                # 검증으로 확인된 원인만 기재
+      solution: ""
+      verification: ""
+      recurrence_prevention: "" # 테스트 추가·모니터링·린트 규칙 등
+      evidence: []
+
+  # AI 도구를 사용했다면 생성 범위·사람의 판단·검증 과정을 기록한다.
+  # 비워두는 것보다 명시하는 쪽이 신뢰를 얻는다. 사용하지 않았으면 used: false로 둔다.
+  ai_usage:
+    used: null               # true | false
+    tools: []                # 사용한 도구
+    generated_scope: []      # AI가 생성한 범위 (파일·모듈 단위, evidence 포함)
+    human_judgment: []       # 사람이 판단·결정·수정한 지점
+    verification: []         # 사람이 검증한 방법과 증거
+    notes: ""
+
+  outcomes:
+    qualitative: []
+    quantitative:
+      - metric: ""
+        value: ""
+        condition: ""        # 측정 환경·표본 수·시점
+        evidence: []
+  limitations: []
+  links:
+    repository: ""
+    demo: ""
+
+  # README와 코드의 일치 여부. 발행 전 검증 결과를 기록한다.
+  readme_consistency:
+    checked_at: ""
+    run_commands: []   # {command, defined_in, match: true|false}
+    env_vars: []       # {name, documented_in, used_in, match: true|false}
+    features: []       # {feature, implemented_in, match: true|false}
+    mismatches: []
+
+  publication:
+    visibility: internal # internal | review | public
+    approved: false
+    approved_at: ""
+    sensitive_notes: []
+  provenance:
+    generated_at: ""
+    sources: []
+    needs_review: []

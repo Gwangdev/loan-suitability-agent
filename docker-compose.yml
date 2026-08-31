@@ -1,0 +1,163 @@
+name: loan-suitability-agent
+
+x-logging: &service-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  ui:
+    build:
+      context: .
+    command:
+      - streamlit
+      - run
+      - loan_agent/app.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+      - --server.headless=true
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      API_BASE_URL: http://app:8000
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777
+    networks:
+      - frontend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8501/_stcore/health || exit 1"]
+    logging: *service-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+  # 스키마 적용은 앱 기동과 분리한다. 앱 프로세스에 섞으면 인스턴스가 둘 이상일 때
+  # 같은 마이그레이션을 동시에 돌려 경쟁하고, "기동 시 자동 생성하지 않는다"는 규칙과도
+  # 경계가 흐려진다. 한 번 실행하고 끝나는 서비스로 두고 앱이 그 완료를 기다린다.
+  migrate:
+    build:
+      context: .
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-loan_suitability}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: "no"
+    logging: *service-logging
+
+  app:
+    build:
+      context: .
+    command:
+      - uvicorn
+      - loan_agent.api:app
+      - --host=0.0.0.0
+      - --port=8000
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-loan_suitability}
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health/ready || exit 1"]
+    logging: *service-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+  worker:
+    # 운영에는 배포하지 않는다(ADR-031 §31.3). 서버 키가 없어 할 일이 없고, 켜 두면
+    # 방문자가 집으려던 PENDING 행을 먼저 집어 실패시킨다. 로컬에서만 켠다:
+    #   docker compose --profile local up -d
+    profiles: ["local"]
+    build:
+      context: .
+    command:
+      - python
+      - -m
+      - loan_agent.worker
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-loan_suitability}
+    env_file:
+      - path: .env
+        required: false
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777
+    # 호스트에 포트를 열지 않는다. 들어오는 요청을 받지 않고 DB만 폴링하므로
+    # 열어 둘 이유가 없고, 열면 공격 표면만 늘어난다.
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+    logging: *service-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-loan_suitability}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    # alpine 변형의 postgres는 uid/gid 70이다. 데비안 이미지의 999를 그대로 쓰면
+    # 컨테이너가 볼륨을 소유하지 못해 initdb가 chmod에서 멈춘다 — 클린 체크아웃에서
+    # 스택이 아예 뜨지 않는다. 이미지 변형과 uid는 함께 정해야 한다.
+    user: "70:70"
+    read_only: true
+    tmpfs:
+      - /tmp:uid=70,gid=70,mode=1777
+      - /var/run/postgresql:uid=70,gid=70,mode=1777
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    logging: *service-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+networks:
+  frontend:
+  backend:
+    internal: true
+
+volumes:
+  postgres_data:

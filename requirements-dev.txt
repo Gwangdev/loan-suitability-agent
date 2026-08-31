@@ -1,8 +1,6 @@
 # 개발/노트북/테스트 의존성 — 런타임(requirements.txt)에 아래를 더한 전체 개발 환경.
 -r requirements.txt
 
-# 노트북 실행
-jupyter>=1.0
 nbconvert>=7.0
 ipykernel>=6.0
 ipywidgets>=8.0

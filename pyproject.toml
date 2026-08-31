@@ -2,7 +2,7 @@
 # 테스트는 tests/ 아래에 있고, 모두 API 키 없이 동작한다(결정적 로직·파서·랭킹).
 testpaths = ["tests"]
 addopts = "-q"
-# [디벨롭: pytest+CI] 리포 루트를 sys.path에 추가해 `from loan_agent import core`가
+# 리포 루트를 sys.path에 추가해 `from loan_agent import core`가
 #   `pytest`/`python -m pytest` 어느 방식으로 실행하든 동작하게 한다.
 #   (CI는 `pytest`로 실행 → 이 설정이 없으면 loan_agent 패키지를 못 찾는다.)
 pythonpath = ["."]

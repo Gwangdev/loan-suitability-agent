@@ -1,0 +1,41 @@
+# evidence.yaml 구조. project-evidence-extractor가 이 형식으로만 출력한다.
+# 근거 없는 항목은 삭제하지 않고 confidence: uncertain / status: needs_review로 남긴다.
+meta:
+  generated_at: ""
+  sources: []          # 읽은 파일·커밋 목록
+  extractor_version: "1"
+
+facts:
+  - id: ""             # f-001 형식
+    category: ""       # problem | role | feature | tech | decision | troubleshooting | outcome | limitation | ai_usage | readme_consistency
+    statement: ""      # 검증 가능한 사실 한 문장
+    evidence:          # 최소 1개. 없으면 confidence: uncertain
+      - source_type: "" # code | test | log | git | project_state | conversation | doc
+        locator: ""     # 파일경로:라인 / 커밋해시 / 로그 경로
+        excerpt: ""     # 인용 (민감정보 제외)
+    confidence: ""     # confirmed | probable | uncertain
+    status: ""         # ok | needs_review
+    attribution: ""    # individual | team | ai_assisted | unknown
+                       # ai_assisted는 AI가 생성하고 사람이 검증한 산출물.
+                       # 사람 검증 근거가 없으면 attribution: ai_assisted + status: needs_review.
+    stage: ""          # planned | implemented   (계획과 구현 구분)
+
+# 가설과 확인된 원인을 분리해 수집한다. 검증되지 않은 가설을 cause로 승격하지 않는다.
+hypotheses:
+  - fact_id: ""        # 대응하는 troubleshooting fact
+    guess: ""
+    test: ""
+    result: ""         # confirmed | rejected | untested
+    evidence: []
+
+# AI 활용 흔적. 커밋 메시지·PR 설명·대화 요약에서 수집한다.
+# 근거가 없으면 추정하지 않고 needs_review로 남긴다.
+ai_usage_findings:
+  - scope: ""          # 파일·모듈
+    generated_by: ""   # 도구명 또는 unknown
+    human_review: ""   # 사람이 검토·수정한 근거 (커밋·리뷰 코멘트)
+    evidence: []
+    status: ""         # ok | needs_review
+
+sensitive_findings: [] # 스캔에서 검출된 민감정보 위치 (본문에 값 자체를 쓰지 않는다)
+needs_review: []       # facts.id 목록

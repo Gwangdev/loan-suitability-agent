@@ -1,10 +1,10 @@
-"""무토큰 데모(사전 녹화 결과) 테스트 (API 키 불필요)."""
-from fastapi.testclient import TestClient
+"""무토큰 데모(사전 녹화 결과) — 픽스처 계층 테스트 (API 키 불필요).
 
+HTTP 표면(`GET /api/v1/demo-cases`)에 대한 테스트는 그 항목을 구현할 때 함께 쓴다.
+여기 남은 것은 표면과 무관하게 성립해야 하는 사실 — 픽스처가 읽히는가, 그리고 그
+경로가 키를 요구하지 않는가 — 이며, 표면이 바뀌어도 깨지지 않아야 한다.
+"""
 from loan_agent import core
-from loan_agent.api import app
-
-client = TestClient(app)
 
 
 def test_fixtures_load():
@@ -13,26 +13,6 @@ def test_fixtures_load():
     for c in fx["cases"]:
         r = c["result"]
         assert r["파싱결과"] and r["심사결과"] and r["안내문"]
-
-
-def test_demo_list_endpoint():
-    r = client.get("/demo")
-    assert r.status_code == 200
-    body = r.json()
-    assert len(body["cases"]) == 5
-    assert body["model"]  # 생성 모델명 존재
-
-
-def test_demo_case_endpoint_returns_baked_output():
-    r = client.get("/demo/0")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["result"]["안내문"]          # 사전 녹화 안내문 존재
-    assert "usage" in body["result"]
-
-
-def test_demo_case_out_of_range_404():
-    assert client.get("/demo/999").status_code == 404
 
 
 def test_demo_consumes_no_key():

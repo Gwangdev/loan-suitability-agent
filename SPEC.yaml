@@ -1,0 +1,279 @@
+# Public surface spec — never build what is not listed here.
+#
+# Written in /design, frozen during /build. `tools/gate.py` compares this against
+# the endpoints it extracts from the actual code.
+#
+#   in spec, not in code  ->  S3 missing           (BLOCK; INFO in --commit mode)
+#   in code, not in spec  ->  S4 excess            (BLOCK)
+#
+# Path variable names are ignored in the comparison.
+#
+# If this file must change mid-build, go back to /design §5. Growing the spec to
+# match the code turns the spec into a copy of the code, and the diff catches nothing.
+
+version: 1
+
+# Bare `pytest` on purpose: it is what CI runs, and `python3` on a dev machine can
+# resolve to an interpreter that has no project dependencies installed. Options
+# (testpaths, pythonpath, -q) live in pyproject.toml so both paths agree.
+test_command: "pytest"
+
+# The service lives in loan_agent/. `tools/` is the harness and holds no surface.
+code_roots:
+  - loan_agent
+
+# ---------------------------------------------------------------------------
+# Requirement -> endpoint mapping
+#
+# Rule: a requirement with zero endpoints does not belong to this system.
+#       An endpoint with no requirement is deleted.
+#
+#   R1  A consultant submits confirmed structured data and receives a
+#       deterministic suitability decision.              -> POST   /assessments
+#   R2  A duplicate submission never creates a duplicate
+#       assessment (Idempotency-Key + request hash).     -> (header on R1, no own path)
+#   R3  A consultant re-reads one assessment: decision,
+#       explanation state, Eval result, and the rule /
+#       product / model / prompt versions used.          -> GET    /assessments/{id}
+#   R4  A consultant finds past assessments by status
+#       and period.                                      -> GET    /assessments
+#   R5  Free text is turned into structured candidates by TWO independent
+#       parsers whose disagreement is surfaced, without being
+#       stored, listing missing fields.               -> POST   /parsing-preview
+#   R6  A failed explanation can be regenerated without
+#       recomputing or losing the decision.              -> POST   /assessments/{id}/explanation-runs
+#   R7  Every explanation attempt stays inspectable
+#       (model, prompt version, latency, tokens, error). -> GET    /assessments/{id}/explanation-runs
+#   R8  WITHDRAWN in design review (2026-08-26). It read "a reviewer can read the
+#       product dataset to check the recommendation against its source" and would
+#       have justified GET /products. It was derived from the existing endpoint,
+#       not from a user scenario — the tell of a post-hoc justification. Auditing
+#       is already satisfied by product_dataset_version stored on the decision,
+#       and single-product lookup is only needed on the LLM tool path, which is
+#       not an HTTP surface. The number is left as a gap on purpose so the removal
+#       stays visible. If it turns out to be needed, re-add it via /design §5.
+#   R9  A visitor without an API key can read pre-recorded
+#       guidance output at zero token cost.              -> GET    /demo-cases
+#   R10 An operator can tell "process alive" apart from
+#       "dependencies actually ready".                   -> GET    /health/live
+#                                                           GET    /health/ready
+#
+# Symmetry note (design-review §4): explanation-runs carries both POST and GET.
+# Persisting a run history that cannot be read back is dead data, and R7 is the
+# requirement that makes version tracking (portfolio axis 4) verifiable.
+#
+# Error-code policy — the same class of failure always exits the same way:
+#   422 schema / range validation failed (Pydantic)
+#   409 constraint or state conflict — same Idempotency-Key with a different
+#       request hash, OR a retry requested while a PENDING/RUNNING run exists
+#   404 resource not found
+#   413 request body over the size cap
+#   415 unsupported Content-Type
+#   429 run-rate limit or cooldown exceeded, enforced by the API itself
+#   503 upstream LLM provider unavailable — this also covers the synchronous
+#       explanation path exceeding the 200s cap (ADR-024 §24-R-b). A new 504
+#       is deliberately NOT introduced: exceeding the cap means the provider
+#       did not answer, and one class of failure exits one way.
+#   500 internal error, message masked (no stack trace, path, or query in the body)
+#
+# Error body format: RFC 9457 application/problem+json across every path. One
+# shape everywhere so a client never branches on which endpoint failed.
+#
+# Empty collection is a value, not an absence: GET /assessments with no match
+# returns 200 with an empty array, never 404 and never 204. 204 is reserved for
+# bodiless success.
+#
+# List-query limits — the server enforces them, a client-sent value never wins:
+#   limit   default 20, hard max 100
+#   cursor  opaque, encodes (created_at, id); OFFSET is not offered
+#   filter  status and period only, matched against an allow-list; no parameter
+#           is ever interpolated into a column name or ORDER BY clause
+#
+# Where the run-rate limit lives (revised 2026-08-28, ADR-028). The earlier
+# wording said "per-session", which cannot exist here: there is no auth surface
+# (ADR-009), so the API has no notion of a session. That wording is why the limit
+# ended up implemented only as a Streamlit counter, and once the screen started
+# calling the API, the API surface had no limit at all. The limit is now enforced
+# by the API, keyed on the client address, and only on the paths that can spend
+# tokens. The screen keeps its own counter as a second, client-side guard — it
+# gives the visitor a readable quota message, but it is not the control.
+#
+# One resource, one representation (revised 2026-08-28, ADR-026). POST and GET on
+# an assessment return the SAME shape: `decision` nested, `recommendations` as an
+# array, `explanation_runs` as an array. They previously differed — POST returned
+# the decision fields flat and a single `explanation_run` object — which forced a
+# client to branch on which verb produced the body. A sibling asymmetry with no
+# reason is a defect (design-review §1), and there was no reason.
+#
+# What a recommendation item carries (revised 2026-08-28, ADR-025): product_code,
+# rank, eligible, and the product detail the consultant actually reads — name,
+# bank, interest-rate range, maximum limit. Carrying only the code made the
+# screen's recommendation block unrenderable, which is why the UI hardcoded it
+# away. This does NOT revive withdrawn R8: R8 asked for a separate endpoint that
+# exposes the product dataset, and it was withdrawn because it had been derived
+# from an existing endpoint rather than from a scenario. This adds no endpoint —
+# it fills out the representation of a resource that already exists, and the
+# scenario is real (the screen renders it).
+#
+# Four more fields, found in production (revised 2026-08-31). The list above was
+# derived from the single "recommended product" line and missed the alternatives
+# comparison table, which ranks by rate + approval margin + early-repayment fee
+# and therefore needs `repayment_method`, `rate_type`, `early_repayment_fee` and
+# `approval_margin`. Their absence raised KeyError and killed the whole page on
+# the live path. The demo-fixture path never showed it: that path recomputes the
+# screen through `screen_loan` and gets all nine fields, while the live path only
+# has what the API returns. **Two paths, one renderer, different shapes.** All
+# four were already persisted in `reason_codes`, so nothing about storage
+# changed — the representation was simply narrower than the screen needed.
+#
+# Parsing preview runs two parsers (revised 2026-08-29, ADR-029). R5 previously
+# read "turned into structured candidates" and the implementation used only the
+# rule parser. The LLM parser (Agent 1) sat on the explanation path instead,
+# where its output was neither verified nor used — the Eval metric named
+# 파싱정확도 had nothing to score. R5 now runs BOTH parsers and returns their
+# disagreement as part of the representation. The disagreement IS the check: the
+# response reports it, the screen shows it, and a human picks. Code never
+# reconciles the two silently, because a value chosen by code at that point would
+# never be verified again. Still no endpoint added and still nothing stored.
+# Degrades, never fails: with no LLM key the response carries the rule parser's
+# result alone and says so.
+#
+# Headers that carry an LLM key (added 2026-08-29, ADR-024 §24-R + ADR-029).
+# `X-OpenAI-API-Key` is optional on exactly two paths: POST /parsing-preview and
+# POST /assessments/{id}/explanation-runs. It is a visitor's own key, it flows as
+# a function argument only, and it is never stored, logged, or written to the
+# process environment (forbidden action 7). Absent the header both paths still
+# answer — see the degradation rules below. It appears on no other path, and no
+# path requires it.
+#
+# POST /assessments/{id}/explanation-runs answers 201 or 200 (added 2026-08-29).
+#   201  no key header — a PENDING run is created for the worker to claim later.
+#        A new resource exists, so 201 with the newly created run.
+#   200  key header present — no new resource is created in the usual case: the
+#        request CLAIMS the PENDING row that creating the assessment already
+#        wrote (or a RUNNING row stale past the 200s cap), runs it synchronously,
+#        and returns the finished run. 200 because the answer is the state of a
+#        run that already existed.
+#   This is a split on a header, not a hidden branch: the client knows whether it
+#   sent a key, so the status is predictable from the caller's own request. It is
+#   recorded here because a contract the spec does not state is a contract only
+#   the code knows.
+#
+#   The BODY is the same either way (revised 2026-08-29, code review). Both paths
+#   return the run representation. They briefly did not — the async path returned
+#   only {id, status} — which forced a client to branch its parsing on whether it
+#   had sent a key. That is the same sibling asymmetry ADR-026 rejected on the
+#   assessment response. On the async path most fields come back empty, and that
+#   emptiness is itself the state: no model, no tokens, no text yet.
+#
+# POST /parsing-preview response shape (revised 2026-08-29, ADR-029). The body
+# carries BOTH parsers rather than one merged answer:
+#   rule_candidate     always present — the deterministic parser's fields
+#   llm_candidate      the LLM parser's fields, or null when no key was sent
+#   mismatched_fields  the field names the two disagree on. THIS is the check
+#   parse_accuracy     the Eval 파싱정확도 score for this pair (wires up #18)
+#   missing_fields     required fields still absent, as before
+#   degraded           true when llm_candidate is null, so a reader can tell
+#                      "the two agreed" apart from "only one parser ran"
+# Nothing is stored, and code never reconciles the two — a human picks. A missing
+# key degrades the response, it does not fail it: R5's contract is "structured
+# candidates come back", and one parser still satisfies that. 200 either way.
+#
+# A run's representation carries explanation_text (added 2026-08-29). Safe under
+# ADR-007 because guidance that fails Eval is never written in the first place,
+# so the column is NULL on FAILED and REVIEW_REQUIRED runs. The field exposes
+# what was published, never what was withheld.
+#
+# Explanation is one LLM call (revised 2026-08-29, ADR-030). The pipeline used to
+# make five sequential round trips, two of them re-deciding an assessment that
+# POST /assessments had already computed and stored. The decision, DSR and
+# recommended products are now injected into the prompt as data, and one call
+# returns the guidance text. This tightens a guarantee rather than loosening one:
+# "a tool call is the only way to get a number" depended on the model obeying a
+# prompt, while "the numbers are already in the prompt" leaves nothing to
+# generate. No contract change — the same fields come back.
+# ---------------------------------------------------------------------------
+
+endpoints:
+  - POST   /api/v1/assessments
+  - GET    /api/v1/assessments
+  - GET    /api/v1/assessments/{assessment_id}
+  - POST   /api/v1/assessments/{assessment_id}/explanation-runs
+  - GET    /api/v1/assessments/{assessment_id}/explanation-runs
+  - POST   /api/v1/parsing-preview
+  - GET    /api/v1/demo-cases
+  # Health paths carry no /api/v1 prefix on purpose (gate A5 flags the mismatch).
+  # /api/v1 is a consumer contract that is versioned because breaking it breaks
+  # clients. /health/* is an operations contract called by the orchestrator, and
+  # a probe URL that moves with an API version would break deployment config on
+  # every version bump. Two different audiences, so two different axes — not an
+  # inconsistency. Revisit if a health endpoint ever gets a consumer.
+  - GET    /health/live
+  - GET    /health/ready
+
+exclude:
+  - endpoint: GET /docs
+    reason: FastAPI-generated Swagger UI; not spec-managed
+  - endpoint: GET /redoc
+    reason: FastAPI-generated ReDoc; not spec-managed
+  - endpoint: GET /openapi.json
+    reason: FastAPI-generated OpenAPI document; not spec-managed
+
+# ---------------------------------------------------------------------------
+# Non-HTTP surfaces — the gate cannot diff these, so they are recorded for humans.
+#
+#   explanation worker   `python -m loan_agent.worker`, one compose service.
+#       Claims explanation_run(PENDING) with FOR UPDATE SKIP LOCKED, runs the
+#       single guidance call, writes the result, model/prompt versions, latency
+#       tokens, scores it with the existing Eval, then transitions the run and
+#       the assessment. Added 2026-08-28 (ADR-023) because R7 — "every
+#       explanation attempt stays inspectable, model and prompt version
+#       included" — cannot be satisfied without an executor: nothing in the
+#       repository moved a run out of PENDING, so three of the four assessment
+#       states were unreachable and the audit columns stayed empty.
+#
+#       This is a design gap being filled, not a scope expansion. ADR-003
+#       already stated that execution belongs to a separate runner, and T1 #7
+#       called the PENDING row an outbox — an outbox with no consumer is just
+#       a table nobody reads.
+#
+#       Who executes (revised 2026-08-29, ADR-024 §24-R). Whoever holds the
+#       key executes. A SERVER key (local, compose, recorded demo) is spent by
+#       the worker, asynchronously, exactly as above. A VISITOR key arrives as
+#       a header on POST /assessments/{id}/explanation-runs and is spent by
+#       `app`, synchronously, because the request is the innermost place that
+#       key can reach — going further in would mean storing it, and storing a
+#       key is forbidden. Both paths claim the same explanation_run row and
+#       fill the same columns, so the audit trail does not fork; only the
+#       claimant differs. The earlier wording said the worker was the ONLY
+#       executor, which cannot coexist with the confirmed requirement that a
+#       visitor demo the service with their own token.
+#
+#       What stays true from the 2026-08-28 finding: the screen must never
+#       call the pipeline in-process without a row. That is what made one
+#       click spend tokens twice and leave the copy the visitor actually read
+#       unrecorded, contradicting R7. Both paths above write a row first.
+#
+#       The synchronous path CLAIMS AN EXISTING PENDING ROW, it does not
+#       reject it. Creating an assessment writes PENDING in the same
+#       transaction (ADR-003 outbox), so a 409 on "a run already exists"
+#       would fire on every visitor request. ADR-019's 409 is for a RUNNING
+#       row only.
+#
+#       Not deployed to the public host (ADR-031 §31.3): the worker has no key
+#       there and would race the visitor for PENDING rows.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Deliberately NOT in this spec — recording the absence so it is a decision,
+# not an oversight. Adding any of these requires /design §5.
+#
+#   - No authentication or authorization surface. Demo scope: there is no second
+#     user to impersonate, so IDOR does not arise. Production would need it; see
+#     docs/리스크_통제_대장.md for the 3-step narration.
+#   - No delete or update surface on assessments. An assessment and its decision
+#     are immutable once written; that immutability is what makes the audit claim
+#     true. Retries append a new explanation_run rather than mutating one.
+#   - No collection-wide PUT/DELETE anywhere (gate A4).
+#   - No metrics/dashboard endpoint (P1), no rule-version comparison endpoint (P1).
+# ---------------------------------------------------------------------------

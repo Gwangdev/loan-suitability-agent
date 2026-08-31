@@ -1,0 +1,19 @@
+# 로컬 개발 전용. `docker compose` 가 이 파일을 자동으로 얹는다.
+#
+# 여기에만 호스트 포트가 있다. 기본 파일에 두면 운영에서도 8501·8000이 인터넷에
+# 열려, 리버스 프록시를 유일한 진입점으로 두려던 구성이 무너진다. 운영은 `-f` 로
+# 파일을 명시하므로 이 override 가 얹히지 않는다.
+#
+#   로컬:  docker compose --profile local up -d --build
+#   운영:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+services:
+  ui:
+    ports:
+      - "8501:8501"
+
+  app:
+    # Swagger(/docs)를 로컬에서 열어 API 계약을 눈으로 확인하기 위한 포트다.
+    # 운영에서는 열지 않는다 — 화면이 서버 사이드에서 app 을 부르므로 브라우저가
+    # 직접 닿을 이유가 없고, 열면 공격 표면만 늘어난다(리스크 대장 B3).
+    ports:
+      - "8000:8000"

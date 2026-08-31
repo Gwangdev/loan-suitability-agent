@@ -10,6 +10,23 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: loan_suitability_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        options: >-
+          --health-cmd "pg_isready -U test_user -d loan_suitability_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+        # job이 러너에 직접 뜨므로 포트를 매핑해야 localhost로 닿는다. 매핑을 빠뜨리면
+        # 접속이 실패하고, 그 실패가 곧바로 테스트 건너뛰기로 바뀌어 초록 배지 뒤에서
+        # DB 검증이 0건이 된다.
+        ports:
+          - 5432:5432
     steps:
       - uses: actions/checkout@v4
 
@@ -18,15 +35,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      # [디벨롭: pytest+CI] 단위·API 테스트는 crewai/streamlit 등 무거운 LLM 의존성 없이
-      #   동작하도록 설계돼 있어(core가 crewai 없이 import 가능, /advise의 LLM 경로는 테스트에서
-      #   호출하지 않음), 경량 의존성만 설치한다. → CI가 빠르고 외부 API 키도 필요 없다.
+      # 테스트가 API와 Streamlit 클라이언트를 실제로 import하므로 런타임 의존성 전체를 설치한다.
+      # PostgreSQL 통합 테스트는 러너 서비스에 연결한다.
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest python-dotenv fastapi httpx
+          pip install -r requirements.txt pytest httpx
 
       - name: Run pytest
         env:
-          OPENAI_API_KEY: ""   # 테스트는 키 불필요 — 명시적으로 빈 값
+          OPENAI_API_KEY: ""
+          DATABASE_URL: postgresql+psycopg2://test_user:test_password@localhost:5432/loan_suitability_test
         run: pytest
