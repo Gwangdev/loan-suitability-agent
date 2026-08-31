@@ -4,10 +4,10 @@
 > **Keep it at 100 lines or fewer.** If exceeded, run `/compact`.
 > Operational file — English. Korean stays in `PROJECT_LOG.md` and user-facing output.
 
-- **Version:** v14 (compacted 2026-08-29 · v13 detail moved to `PROJECT_LOG.md` §압축 v13→v14)
+- **Version:** v15 (2026-08-29 · Codex build reviewed · **session handoff — read `docs/긴급/세션인계.md` FIRST**)
 - **Updated:** 2026-08-29 · **Harness:** v9.19
 - **Goal:** **Loan Decision Support — a verifiable loan-consultation decision-support platform**, the single flagship portfolio piece for the 2026 Hanwha Finance **Platform-IT** application. Deadline 2026-09-18 15:00 (H-FIT 09-20); all but the SQLD result done by 09-10.
-- **Current step:** `/design` re-run **approved** 2026-08-29 → **`/build` unblocked.** 19 defects open, 조치 0건 (#32 closed).
+- **Current step:** Codex executed the approved design; **the work sits UNCOMMITTED in the working tree (15 modified + 1 new migration).** First pass: every item implemented, invariants hold. Second pass found 4 defects; **#33–#36 all closed 2026-08-29.** The 3-Agent pipeline and the notebook are gone. 17 defects open (#40–#46 fixed same-session, uncommitted).
 
 ## Spine (never dilute — user-confirmed)
 
@@ -63,30 +63,38 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…033)**
 
 ## Open Labels (blocks completion)
 
-**19 open defects (#13–#31 minus those closed by design; #32 closed 2026-08-29). None of the remaining are fixed — no commit hashes recorded.**
+**17 open (#13–#37 minus closed). Codex fixed #14·#15·#18·#21·#26·#29 + ADR-024/029/030 — all UNCOMMITTED, so no hashes yet. **#33–#36 closed. #37 (7 fixture comments) waits on the owner-key fixture regeneration.**
 
 ## Open Feedback (ledger in `PROJECT_LOG.md`)
 
-- **#3** `G3` · **#6** `P2` author email (decided: leave it) · **#8** `C1` 35% vs 40% — observations, not blockers
+- **#3** `G3` · **#6** `P2` author email (leave it) · **#8** `C1` 35% vs 40% — observations, not blockers
 - **Routing:** `/build` #13·#14·#15·#21·#26·#29 · `/debug`-first #18·#19·#25 · **closed by design** #16·#17·#20·#22·#23·#24·#27·#28·#30·#31
-- **#21 is 19 tags in `loan_agent/`** (core.py 15, app.py 4) — reported as 2, then 15; measured 2026-08-29. Gate `L2` misses this shape, **which is itself a finding**
 - **#32 closed 2026-08-29** — 12 harness tags removed at the source (`~/.harness-src`, self-test 91/91) and copied back; harness **v9.18**. `L2` missing them was not a bug: `is_deliverable()` exempts harness files and `b_leak_harness_ok` tests that. **The exemption is correct and stays** — it covers a different axis (do not BLOCK) than this fix (do not publish). **`gate.py:1049` is the detection regex, never remove it**
-- **#26** `tests/test_ui_api_client.py:30` pins the misunderstanding ADR-027 reverses — flip it deliberately, test name included
 - **#29** `db/models.py:107` `Mapped[float]` vs `Numeric(asdecimal=True)` — write float, read Decimal, no precision/scale. **Needs a round-trip integration test, not just a type fix**
 
 ## Next Action
 
-1. **Hygiene, target 08-31** — `#21`, `#15` (compose healthcheck; `/health/ready` exists), `#14` (CI). No design judgement, no `SPEC.yaml` change. **`#19` enters `/debug` first** — symptom known, cause not.
-2. **안 B** — ADR-029 two-parser preview + ADR-030 single call. Fix `#29` in the same pass. Flip `#26`.
-3. **AWS deploy** — ADR-031. **TLS gates the visitor-key feature.**
-4. **README last** (`#13`) — it can only state facts once 1–3 land.
+0. **Refactor done (#38·#39)** — CSS→`static/apple.css`, LLM path→`loan_agent/llm.py` (**core.py has zero LLM references**), key header→`api/contract.py`. Pure relocation. Further core.py split deferred: 15 files, 90 sites, and 355 lines reads fine.
+1. **`#33`·`#34` closed 2026-08-29** — notebook deleted, all 3-Agent code removed (`core.py` −255, `app.py` −56). Two call-guard tests became a **structural absence assertion**, which is the stronger guarantee.
+2. **Reviews done.** Both slots used for this commit range; #40–#46 fixed. — this commit range's slot. **`/security-review` also applies**: the visitor key is a new external input path.
+3. **Then commit** (no trailer, split by feature).
+4. **AWS deploy** — ADR-031. **TLS gates the visitor-key feature.**
+5. **README last** (#13) — it can only state facts once 1–4 land.
 
-**Codex handoff ready:** `prompts/codex-build-approved-design.md`. The old `codex-verify-fixes.md` is renamed `.deprecated` with a do-not-run header (pre-amendment ADR-024).
+**Blocked on the user (owner key required):** `demo_fixtures.json` is still 3-Agent-shaped output. Regenerating it also flips the 7 remaining "3-Agent" comments (#37) — same commit.
+
+**Missing measurement:** ADR-030 per-stage timing was never reported and the instrument died with #33. Measure total single-call latency instead.
+
+**Compose verified for the first time 2026-08-29** — 4/4 healthy, `/health/ready` ok, assessment + parsing-preview answer. It had never been started before; two blockers (#47 alpine uid 70≠999, #48 no migration step in image or compose) had to be fixed first.
+
+**Reviews done.** `/code-review` 7 findings (#40–#46, all fixed — incl. a worker crash on provider timeout and the root cause of #19). `/security-review`: nothing reportable; the visitor-key path never stores, logs, env-writes, or echoes the key.
+
+**Next Codex handoff must fix one prompt defect:** "do not edit `endpoints:`" was read literally, so header/shape/status-code contracts never reached `SPEC.yaml` (#35). Write it as "`endpoints:` is frozen; update every other contract comment."
 
 ## Halt Reason
 
-**Halted: no.** Lifted 2026-08-29. `docs/긴급/미결이슈.md` is historical — its three questions are answered by ADR-029 / 030 / 031.
+**Halted: no.** Session handoff only. **`docs/긴급/세션인계.md` is the cold-start entry point**; `미결이슈.md` beside it is superseded and kept as history.
 
 ## Machine State (2026-08-29)
 
-`pytest 89 passed` · `test_gate 91/91` · `gate BLOCK 1 (G3) · WARN 9` · `S0` clean · `S3`·`S4` 0 · env `pytest` / `python3.11`
+`pytest 99 passed` (was 89) · `test_gate 91/91` · `gate BLOCK 1 (G3) · WARN 9` · `S0` clean · `S3`·`S4` 0 · **`S2` 8 → 9 (that is #33)** · env `pytest` / `python3.11`
