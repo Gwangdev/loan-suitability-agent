@@ -7,7 +7,7 @@
 - **Version:** v15 (2026-08-29 · Codex build reviewed · **session handoff — read `docs/긴급/세션인계.md` FIRST**)
 - **Updated:** 2026-08-29 · **Harness:** v9.19
 - **Goal:** **Loan Decision Support — a verifiable loan-consultation decision-support platform**, the single flagship portfolio piece for the 2026 Hanwha Finance **Platform-IT** application. Deadline 2026-09-18 15:00 (H-FIT 09-20); all but the SQLD result done by 09-10.
-- **Current step:** Codex executed the approved design; **the work sits UNCOMMITTED in the working tree (15 modified + 1 new migration).** First pass: every item implemented, invariants hold. Second pass found 4 defects; **#33–#36 all closed 2026-08-29.** The 3-Agent pipeline and the notebook are gone. 17 defects open (#40–#46 fixed same-session, uncommitted).
+- **Current step:** **Deployed. https://loan.gwang.dev is live** — TLS via Caddy/Let's Encrypt, `8000`/`8501` closed, reverse proxy is the only entrypoint. Rebuild branch merged to `main` (`253cab4`), README rewritten to match reality (`dca98ee`), remote in sync, tree clean. **10 defects open.** Remaining: both review slots, the UI pair (#55·#57), video, portfolio PDF.
 
 ## Spine (never dilute — user-confirmed)
 
@@ -74,15 +74,17 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…033)**
 
 ## Next Action
 
-**Everything through the fixture regeneration is committed and clean.** What remains:
+**Read `docs/긴급/세션인계.md` first — it carries the deployment facts, the SSH/compose commands, and why each remaining item is ordered where it is.**
 
-1. **AWS deploy** — ADR-031. **Procedure written and ready to follow: `docs/배포절차.md`.** Domain `gwang.dev` bought, `loan.gwang.dev` is the target; Caddyfile and the three-way compose split are committed and verified locally. **Step 0 needs the user: `git push -u origin feature/decision-support-rebuild`** — the branch has never been pushed and the server clones from GitHub. **Do not merge to `main` until the EC2 deploy is confirmed working** — `main` still serves the pre-rebuild Streamlit Cloud demo, and merging first removes the fallback before the replacement is proven. **One open decision blocks it: buy a domain or not.** Options, the concepts needed to choose, and the exact procedure are in **`docs/배포계획.md`**. `nip.io`/`sslip.io` are rejected (shared Let's Encrypt rate limit, documented failures). CloudFront gives free TLS without a domain but leaves the CloudFront→EC2 leg in plaintext — the one thing §31.5 exists to prevent. Stop criterion 09-06 → video demo (§31.4).
-2. **Post-deploy work is written down, not carried in conversation** — **`docs/배포후_검토목록.md`**: both review slots (once per commit range, so they wait for deploy), the deferred `core.py` split with its re-judgement criterion, `#18`·`#25` for `/debug`, and the gate items already judged.
-3. **README last** (`#13`) — it can only state facts once deploy lands. Must record that the async worker path does **not** run in production (§31.3), or the docs are false again.
+1. **`/code-review` + `/security-review`, once each.** Slot is per commit range and deploy is done, so this is the place. `/security-review` now sees the visitor-key header path **actually exposed to the internet**, not just present in code.
+2. **UI pair, handled together (user's call)** — `#57` dark mode text invisible (heavier: screens go in the video and the PDF; a one-line `[theme] base = "light"` closes it), `#55` no progress indicator during synchronous guidance. Detail in `docs/배포후_검토목록.md` §5.5.
+3. **`core.py` split re-judgement (`#38`)** — **not splitting is also a decision.** Criteria in `docs/배포후_검토목록.md` §2.1.
+4. **`/debug` on `#18`·`#25`** — symptom known, cause not. `#19` was closed by `/code-review`.
+5. **Video demo → portfolio PDF.**
 
-**Missing measurement:** ADR-030 per-stage timing was never reported and the instrument died with #33. Measure total single-call latency instead.
+**Local dev needs `PGPORT=5433`** (Homebrew Postgres moved off 5432 so a coursework container can own it; `~/.zshrc` exports it, so a fresh shell just runs `pytest`).
 
-**Session-loss note:** conversation context is lost easily. Anything that must survive goes to a file — `PROJECT_LOG.md` for history, `docs/배포계획.md` and `docs/배포후_검토목록.md` for pending work.
+**What this project proved about finding defects:** reading found 7, `compose up` found 2 (both start-blocking), the first real LLM run found 4, and **real use after deploy found 2 more** — a `KeyError` that killed the page and a 10,000x parse error. `#47`·`#48`·`#49` were not reachable by reading. That is why review waited for deploy, and the result supported it.
 
 ## Halt Reason
 
