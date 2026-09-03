@@ -57,7 +57,10 @@ TOKEN_PRICE_SOURCE = "https://developers.openai.com/api/docs/models/gpt-4o-mini"
 
 st.set_page_config(
     page_title="대출 적합성 심사 | 데모", page_icon="🏦", layout="wide",
-    initial_sidebar_state="expanded",
+    # "expanded"로 두면 좁은 화면에서 사이드바가 본문을 덮은 채로 첫 화면이 뜬다.
+    # "auto"는 넓은 화면에서 펼치고 좁은 화면에서 접으므로, apple.css가 데스크톱에만
+    # 고정 규칙을 거는 것과 짝이 맞는다.
+    initial_sidebar_state="auto",
 )
 
 # 서버 상한을 넘긴 응답이 도착할 시간. 상한 초과를 기록하고 503을 직렬화하는 데
@@ -276,17 +279,31 @@ def _render_result(out: dict, screen: dict = None):
                             width="stretch", hide_index=True,
                         )
 
+            # 실제 심사 경로에서 오는 목록은 API가 저장한 상위 3건이다(ADR-025).
+            # 그것을 「적격 상품 목록」이라 부르면 화면이 없는 사실을 말하게 된다.
+            # 설계는 그대로 두고 화면이 범위를 정직하게 밝히는 쪽으로 닫는다.
+            상위3 = screen.get("목록범위") == "상위3"
             if screen["판정"] != "어려움":
                 if screen["적격상품"]:
-                    st.write("적격 상품 목록 (상품코드·은행 포함):")
+                    st.write(
+                        "추천 상위 3건 (상품코드·은행 포함):" if 상위3
+                        else "적격 상품 목록 (상품코드·은행 포함):"
+                    )
                     st.dataframe(screen["적격상품"], width="stretch", hide_index=True)
                 else:
-                    st.write("적격 상품이 없습니다.")
+                    st.write("추천할 상품이 없습니다." if 상위3 else "적격 상품이 없습니다.")
             elif screen["적격상품"]:
                 st.caption("규정만 보면 통과하는 상품이 있으나, 상환능력이 부족해 추천하지 않습니다.")
 
             with st.expander("부적격 사유 보기"):
-                _render_ineligible_reasons(screen["부적격사유"])
+                # 사유가 비어 있을 때 「모두 충족」이라고 쓰면 정보 없음과 해당 없음이
+                # 한 문장으로 뭉개진다. 상위 3건만 저장하는 경로는 탈락 상품 자체를
+                # 들고 있지 않으므로 그렇게 말한다.
+                if 상위3 and not screen["부적격사유"]:
+                    st.write("이 경로에서는 제공되지 않습니다 — API가 추천 상위 3건만 저장하므로 "
+                             "탈락 상품과 그 사유가 남지 않습니다.")
+                else:
+                    _render_ineligible_reasons(screen["부적격사유"])
         else:
             st.warning("파싱 결과를 JSON으로 해석하지 못해, 결정적 심사 결과(배지·적격상품)를 계산할 수 없습니다.")
 
@@ -397,7 +414,11 @@ def _screen_from_assessment(assessment: dict) -> dict:
         "추천상품": candidates[0] if candidates else None,
         "추천후보": candidates,
         "적격상품": candidates,
+        # API는 추천 상위 3건만 저장한다(ADR-025). 탈락 상품과 사유는 이 경로에
+        # 존재하지 않으므로 빈 dict가 「모두 충족」이 아니라 「데이터 없음」이라는
+        # 것을 화면이 구분할 수 있도록 범위를 함께 넘긴다.
         "부적격사유": {},
+        "목록범위": "상위3",
     }
 
 
@@ -451,10 +472,16 @@ def _effective_api_key():
 def main():
     _inject_apple_css()
 
-    st.markdown("<div class='hero-title'>🏦 대출 적합성 심사 에이전트</div>", unsafe_allow_html=True)
+    # 문구는 실행 경로를 그대로 적는다. 「3개 Agent가 순차 협업」은 세 부분이 모두
+    # 사실과 달랐다 — 코드에 정의된 Agent는 파서와 안내 둘이고(llm.py), 이 화면이
+    # 실제로 도는 것은 안내 하나이며(폼 채우기는 core.rule_based_parse), 심사는
+    # Agent가 아니라 결정적 함수다(core/decision.py). 3-Agent 파이프라인은 코드에서
+    # 삭제됐고 test_assessments.py가 부활을 막고 있는데 화면만 그대로 광고하고 있었다.
+    st.markdown("<div class='hero-title'>🏦 대출 상담 의사결정 지원</div>", unsafe_allow_html=True)
     st.markdown(
-        "<div class='hero-lead'>고객 상담 내용을 입력하면 3개 Agent(파싱 → 심사 → 안내)가 "
-        "순차 협업해 결과를 안내합니다.</div>",
+        "<div class='hero-lead'>상담 내용은 <b>규칙 기반 파서</b>가 항목으로 옮기고, "
+        "적격 판정과 DSR은 <b>결정적 함수</b>가 계산합니다. "
+        "LLM은 <b>확정된 결과를 설명하는 안내문</b>만 씁니다 — 판정·추천·DSR 값에는 닿지 않습니다.</div>",
         unsafe_allow_html=True,
     )
 
