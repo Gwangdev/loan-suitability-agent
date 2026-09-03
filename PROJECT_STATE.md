@@ -4,10 +4,10 @@
 > **Keep it at 100 lines or fewer.** If exceeded, run `/compact`.
 > Operational file — English. Korean stays in `PROJECT_LOG.md` and user-facing output.
 
-- **Version:** v18 (2026-09-03 · `/design` §5 approved · plan stages 1–2 landed in code · **read `docs/긴급/세션인계.md` FIRST**)
-- **Updated:** 2026-09-03 · **Harness:** v9.19
+- **Version:** v19 (2026-09-04 · plan stages 1–2 **deployed and verified on EC2** · **read `docs/긴급/세션인계.md` FIRST**)
+- **Updated:** 2026-09-04 · **Harness:** v9.19
 - **Goal:** **Loan Decision Support — a verifiable loan-consultation decision-support platform**, the single flagship portfolio piece for the 2026 Hanwha Finance **Platform-IT** application. Deadline 2026-09-18 15:00 (H-FIT 09-20); all but the SQLD result done by 09-10.
-- **Current step:** **Deployed. https://loan.gwang.dev is live** — TLS via Caddy/Let's Encrypt, `8000`/`8501` closed, reverse proxy is the only entrypoint. Rebuild branch merged to `main` (`253cab4`), README rewritten to match reality (`dca98ee`), remote in sync, tree clean. **PIPELINE STAGE: `/build`. `/design` §5 approved 2026-09-03.** Both review slots for this range are spent (2026-09-01): `/code-review` → #58·#59; `/security-review` → no HIGH/MEDIUM. EC2 spot-check added #60·#61; local 375px measurement added #62·#63 (both closed same day). **Plan stages 1–2 are done in code and unverified on the server** — this desktop has no docker and no `loan-demo.pem`, so nothing has reached EC2. **11 defects open.** Work order lives in `docs/반영계획_2026-09-01.md`, not here.
+- **Current step:** **Deployed. https://loan.gwang.dev is live** — TLS via Caddy/Let's Encrypt, `8000`/`8501` closed, reverse proxy is the only entrypoint. Rebuild branch merged to `main` (`253cab4`), README rewritten to match reality (`dca98ee`), remote in sync, tree clean. **PIPELINE STAGE: `/build`. `/design` §5 approved 2026-09-03.** Both review slots for this range are spent (2026-09-01): `/code-review` → #58·#59; `/security-review` → no HIGH/MEDIUM. EC2 spot-check added #60·#61; local 375px measurement added #62·#63 (both closed same day). **Plan stages 1–2 are DEPLOYED AND VERIFIED on EC2 (2026-09-04, from the MacBook — it has docker and the pem the desktop lacks).** `#60` server moved to `main`; `#61` proved by an actual reboot (4 containers back in 15s, all healthy in 27s); `#64` found and closed — the apex `gwang.dev` had no DNS record, so the submission domain could never get a certificate. **`gwang.dev` now serves the portfolio host over TLS, independent of the app containers.** **Stage 0 (credential rotation) is closed as 미조치 by the user's decision.** **11 defects open.** Work order lives in `docs/반영계획_2026-09-01.md`, not here.
 
 ## Spine (never dilute — user-confirmed)
 
