@@ -9,6 +9,24 @@
 # (ADR-031 §31.3 — 서버 키가 없어 할 일이 없고, 켜 두면 방문자가 집으려던 PENDING
 # 행을 먼저 집어 실패시킨다).
 services:
+  # 재시작 정책은 운영 파일에만 둔다. 로컬에서 `unless-stopped`가 걸리면 개발자가
+  # 내린 컨테이너가 도커 데스크톱 재기동과 함께 되살아나 포트를 물고 있게 된다.
+  #
+  # 셋 다 정책이 없으면 인스턴스가 재부팅될 때 `caddy`만 `unless-stopped`로 살아나
+  # 뒤에 아무것도 없는 프록시가 502를 돌려준다(`#61` 실측). 제출 링크가 이 인프라
+  # 하나를 가리키므로 그 상태가 곧 제출 실패다.
+  #
+  # `migrate`는 여기 없다. 한 번 실행하고 끝나는 서비스라 기본 파일의 `restart: "no"`가
+  # 옳다 — 정책을 걸면 완료 후 종료를 실패로 보고 마이그레이션을 반복 실행한다.
+  ui:
+    restart: unless-stopped
+
+  app:
+    restart: unless-stopped
+
+  postgres:
+    restart: unless-stopped
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -23,11 +41,16 @@ services:
       # 반복하면 Let's Encrypt 한도에 걸린다. 컨테이너를 지워도 남도록 이름을 준다.
       - caddy_data:/data
       - caddy_config:/config
+      # 포트폴리오 호스트가 내보내는 디렉터리. 읽기 전용으로 붙인다 — Caddy가
+      # 여기에 쓸 일이 없고, 쓰기가 가능하면 공개 디렉터리가 곧 쓰기 가능한
+      # 표면이 된다. 저장소 루트가 아니라 `site/`만 붙이는 것이 핵심이다.
+      - ./site:/srv/site:ro
     networks:
       - frontend
-    depends_on:
-      ui:
-        condition: service_healthy
+    # `ui`에 대한 depends_on을 걸지 않는다. 걸면 Streamlit이 healthy에 이르지 못할 때
+    # Caddy가 기동조차 하지 않아 정적 포트폴리오까지 함께 내려간다 — 1-2가 없애려던
+    # 실패 양상이 시작 시점으로 자리만 옮기는 셈이다. 프록시는 상류가 없으면 502를
+    # 돌려주면 되고, 그동안 `gwang.dev`는 계속 열려 있어야 한다.
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:2019/config/ >/dev/null || exit 1"]
       interval: 10s

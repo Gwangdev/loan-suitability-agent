@@ -9,6 +9,20 @@
 # 이 도메인의 A 레코드는 반드시 회색 구름(DNS only)이어야 한다 — 주황색이면
 # Cloudflare가 TLS를 종료하고 여기까지는 평문이 된다.
 
+# 두 호스트가 같은 보안 헤더를 쓴다. 청중과 위협이 같으므로 값이 갈릴 이유가 없고,
+# 한쪽만 고쳐 어긋나는 것을 막으려면 값을 한 곳에만 둬야 한다(SPEC.yaml portfolio host).
+(security_headers) {
+	# .dev는 브라우저가 HSTS를 강제하는 TLD지만, 헤더로도 명시한다. TLD의 성질에
+	# 기대는 것과 서버가 선언하는 것은 다르고, 다른 TLD로 옮겨도 보장이 남는다.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
 loan.gwang.dev {
 	# 화면만 외부에 노출한다. API(app)는 컨테이너 내부망에만 둔다 — Streamlit이
 	# 서버 사이드에서 app을 부르므로 브라우저가 직접 닿을 이유가 없다. 리스크 대장
@@ -19,15 +33,7 @@ loan.gwang.dev {
 	# 그대로 넘기므로 따로 설정하지 않는다.
 	reverse_proxy ui:8501
 
-	# .dev는 브라우저가 HSTS를 강제하는 TLD지만, 헤더로도 명시한다. TLD의 성질에
-	# 기대는 것과 서버가 선언하는 것은 다르고, 다른 TLD로 옮겨도 보장이 남는다.
-	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
-		Referrer-Policy "strict-origin-when-cross-origin"
-		-Server
-	}
+	import security_headers
 
 	# 접근 로그에서 방문자 키를 지운다. Caddy의 JSON 로그는 요청 헤더를 기록하고
 	# 기본 마스킹 대상은 Authorization과 Cookie뿐이라, 직접 만든 헤더는 그대로
@@ -41,5 +47,28 @@ loan.gwang.dev {
 				request>headers>X-Openai-Api-Key delete
 			}
 		}
+	}
+}
+
+# 포트폴리오 호스트. 지원서가 링크 하나만 받으므로 이 페이지가 제출물 본체다
+# (SPEC.yaml portfolio host, ADR-031 개정 2026-09-01).
+#
+# `ui`를 거치지 않고 Caddy가 파일을 직접 낸다. 프록시로 두면 Streamlit이 죽을 때
+# 포트폴리오가 함께 사라지는데, 그 실패 양상은 가정이 아니라 `#61`에서 실측됐다.
+gwang.dev {
+	import security_headers
+
+	# 공개 표면은 요청이 아니라 이 디렉터리다. `root`는 여기 있는 것을 전부 내보내므로
+	# 두 가지가 구속이다 — 리스팅을 켜지 않는다(`browse`를 절대 추가하지 않는다),
+	# 그리고 공개할 파일만 넣는다. 저장소 작업 트리를 가리키면 `.env`가 함께 나간다.
+	root * /srv/site
+	file_server
+
+	encode gzip zstd
+
+	# 방문자 키가 이 호스트로 오지 않으므로 서비스 호스트의 로그 키 필터가 여기엔
+	# 없다. 빠뜨린 것이 아니라 범위의 사실이다.
+	log {
+		output stdout
 	}
 }
