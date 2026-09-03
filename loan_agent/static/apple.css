@@ -56,18 +56,36 @@ html, body, #root,
   font-family: var(--font-body);
 }
 
-/* --- 사이드바: 항상 펼쳐진 상태로 고정(접기 버튼 숨김 + 강제 표시) --- */
+/* --- 사이드바 ---
+   생김새는 폭과 무관하므로 무조건 적용하고, 자리를 차지하는 규칙만 데스크톱으로
+   한정한다. 아래 강제 표시 세 줄(transform/visibility/margin)과 접기 버튼 숨김을
+   좁은 화면에서도 걸면, Streamlit이 오버레이로 띄우는 260px 패널이 본문 위에 덮인
+   채 닫을 수단이 사라진다 — 375px에서 입력창과 결과에 도달할 수 없게 된다.
+   제출 링크는 휴대폰에서 먼저 열리므로 그 화면이 곧 첫인상이다. */
 [data-testid="stSidebar"] {
   background: var(--color-pearl);
   border-right: 1px solid var(--color-hairline);
-  min-width: 260px !important;
-  width: 260px !important;
-  transform: none !important;
-  visibility: visible !important;
-  margin-left: 0 !important;
 }
-[data-testid="stSidebarCollapseButton"] { display: none !important; }
 [data-testid="stSidebar"] [data-testid="stMainBlockContainer"] { max-width: none; padding-top: 2rem; }
+
+/* 데스크톱에서만 항상 펼쳐진 채 고정한다. 예시 케이스와 데모 버튼이 사이드바에
+   있어 접히면 주요 경로가 한 번 더 숨는다.
+
+   이 블록의 규칙은 Streamlit이 좁은 화면에서 패널을 접고 화면 밖으로 밀어내는
+   동작을 통째로 취소한다. 그래서 좁은 화면에는 걸지 않는다. 폭까지 !important로
+   박으면 접기 자체가 막혀 닫기 버튼을 눌러도 패널이 남고(실측), 접기 버튼마저
+   감춰져 있으면 260px 패널이 본문을 덮은 채 닫을 수단이 사라진다 — 375px에서
+   입력과 결과에 도달할 수 없게 된다. */
+@media (min-width: 768px) {
+  [data-testid="stSidebar"] {
+    min-width: 260px !important;
+    width: 260px !important;
+    transform: none !important;
+    visibility: visible !important;
+    margin-left: 0 !important;
+  }
+  [data-testid="stSidebarCollapseButton"] { display: none !important; }
+}
 
 /* --- 타이포 --- */
 h1, h2, h3 {
@@ -206,4 +224,34 @@ h1, h2, h3 {
   font-size: 11px;
   line-height: 1.5;
   color: var(--color-ink-muted-48);
+}
+
+/* --- 좁은 화면 바닥 ---
+   본문 컨테이너의 좌우 여백은 900px 폭을 전제로 잡혀 있어 375px에서는 읽을 폭이
+   그만큼 깎인다. 스타일 정비(4단계)가 밀려도 남아 있어야 하는 최소치만 여기 둔다. */
+@media (max-width: 767px) {
+  /* 사이드바를 다시 여는 버튼은 Streamlit 툴바 안에 있다. 위쪽에서 툴바를 통째로
+     감추고 있어(제품처럼 보이게 하는 조치) 좁은 화면에서 사이드바가 접히면 다시
+     펼칠 수단이 사라진다 — 방문자 키 입력과 「토큰 없이 데모 보기」가 통째로
+     도달 불가가 된다. 그래서 이 버튼 하나만 되살리고 나머지 툴바 동작(배포·메뉴)은
+     계속 감춘다. */
+  [data-testid="stToolbar"] {
+    display: flex !important;
+    visibility: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+  }
+  [data-testid="stExpandSidebarButton"] { visibility: visible !important; }
+  [data-testid="stToolbarActions"] { display: none !important; }
+
+  /* 툴바를 되살리면 헤더가 absolute로 본문 위에 겹친다(60px). 위쪽에서
+     stAppViewContainer의 padding-top을 0으로 눌러 두었기 때문에 그만큼을 본문이
+     직접 비워 주지 않으면 히어로 제목의 윗부분이 잘린다. */
+  [data-testid="stMainBlockContainer"] {
+    padding-left: 1rem;
+    padding-right: 1rem;
+    padding-top: 76px;
+  }
+  .hero-title { font-size: 1.75rem; line-height: 1.25; }
+  .hero-lead { font-size: 0.98rem; }
 }

@@ -27,6 +27,10 @@ COPY loan_products.csv ./
 # 못한다. 앱이 기동 시 테이블을 자동 생성하지 않는다는 규칙과 짝이 되는 조치다.
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
+# 테마 고정이 이미지에 들어가야 컨테이너에서도 적용된다. 이 Dockerfile은 경로를
+# 골라 복사하므로 저장소에만 두면 운영 화면에는 도달하지 않는다.
+# `.streamlit/secrets.toml`은 .dockerignore에 있어 함께 들어오지 않는다.
+COPY .streamlit/ ./.streamlit/
 # .env와 시크릿은 이미지에 복사하지 않고 런타임 환경으로만 전달한다.
 
 # 읽기 전용 루트 파일시스템에서 실행해도 동작하도록 홈은 Compose의 tmpfs에 둔다. 고정 UID는
