@@ -4,10 +4,10 @@
 > **Keep it at 100 lines or fewer.** If exceeded, run `/compact`.
 > Operational file — English. Korean stays in `PROJECT_LOG.md` and user-facing output.
 
-- **Version:** v15 (2026-08-29 · Codex build reviewed · **session handoff — read `docs/긴급/세션인계.md` FIRST**)
-- **Updated:** 2026-08-29 · **Harness:** v9.19
+- **Version:** v17 (2026-09-01 · `/design` §5 amendment · **session handoff — read `docs/긴급/세션인계.md` FIRST**)
+- **Updated:** 2026-09-01 · **Harness:** v9.19
 - **Goal:** **Loan Decision Support — a verifiable loan-consultation decision-support platform**, the single flagship portfolio piece for the 2026 Hanwha Finance **Platform-IT** application. Deadline 2026-09-18 15:00 (H-FIT 09-20); all but the SQLD result done by 09-10.
-- **Current step:** **Deployed. https://loan.gwang.dev is live** — TLS via Caddy/Let's Encrypt, `8000`/`8501` closed, reverse proxy is the only entrypoint. Rebuild branch merged to `main` (`253cab4`), README rewritten to match reality (`dca98ee`), remote in sync, tree clean. **10 defects open.** Remaining: both review slots, the UI pair (#55·#57), video, portfolio PDF.
+- **Current step:** **Deployed. https://loan.gwang.dev is live** — TLS via Caddy/Let's Encrypt, `8000`/`8501` closed, reverse proxy is the only entrypoint. Rebuild branch merged to `main` (`253cab4`), README rewritten to match reality (`dca98ee`), remote in sync, tree clean. **PIPELINE STAGE: `/design` §5 amendment, awaiting approval — then `/compact`, then back to `/build`.** Both review slots for this range are spent (2026-09-01): `/code-review` → #58·#59; `/security-review` → no HIGH/MEDIUM. EC2 spot-check added #60·#61. **14 defects open.** Work order lives in `docs/반영계획_2026-09-01.md`, not here.
 
 ## Spine (never dilute — user-confirmed)
 
@@ -34,6 +34,7 @@ Subtraction and addition are a pair. Full table, four portfolio axes, 3-step nar
 | Portfolio composition · Spine + four axes · T1 gap list · Invariants | approved | 2026-08-26 |
 | **Scope & regulations fixed (design)** · **Build start** | **approved** | 2026-08-26 |
 | **Design re-run — ADR-029/030 (안 B) · ADR-031 (AWS+TLS) · ADR-024 §24-R** | **approved (all three)** | 2026-08-29 |
+| **`/design` §5 — portfolio host `gwang.dev` as a non-HTTP surface (scope expansion)** | **pending** | 2026-09-01 |
 | Record & publication (handoff) | pending | |
 
 ## Completion Verdict
@@ -55,7 +56,7 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…033)**
 - **ADR-024 §24-R** **Whoever holds the key executes.** Server key → worker, async. Visitor key → **`app`, synchronous, on the existing R6 POST** (innermost place a key reaches; storing it is forbidden ⑦). Both paths claim the **same** `explanation_run` row, so the audit trail does not fork. Sync path **claims an existing PENDING row** (a 409 there would fire on every visitor) **and reclaims RUNNING past 200s** — no worker in prod, so nothing else would. Cap overrun exits **503**; no new 504.
 - **ADR-029** `parsing-preview` runs **two independent parsers; their disagreement is the check.** Code never reconciles them — a human picks. Degrades to the rule parser alone without a key. The one remaining boundary where a deterministic check fits.
 - **ADR-030** Explanation is **one LLM call**; decision/DSR/product detail injected as data. Removes 4 tool round trips (30s problem) and **tightens** the guarantee. ADR-025 is its precondition. **Streaming deliberately not decided — measure first.**
-- **ADR-031** **AWS EC2 single instance + the existing compose.** EKS rejected. Prod carries **no server key and no worker**. **TLS is mandatory** — without it the visitor-key feature stays off. Stop: no deploy by 09-06 → video demo becomes primary evidence, README badge comes down.
+- **ADR-031** **AWS EC2 single instance + the existing compose.** EKS rejected. Prod carries **no server key and no worker**. **TLS is mandatory** — without it the visitor-key feature stays off. Stop: no deploy by 09-06 → video demo becomes primary evidence, README badge comes down. **Amended 2026-09-01:** the instance now serves **two** hosts — `loan.gwang.dev` proxies the app, `gwang.dev` root serves the static portfolio **directly from Caddy**, so app failure cannot take the submission link down. Caddy stays the sole entrypoint.
 - **ADR-032** Money stays `float`, **measured** at the DSR band boundary. **Valid only while** inputs are integer won, there is no accumulation, and thresholds are 2-decimal. Any of those breaking reopens it.
 - **ADR-033** Reference-standard scope fixed. **IEEE compliance is never claimed.**
 - **Data model frozen:** `docs/데이터모델.md`. **Never merge the two index migrations.**
@@ -63,26 +64,29 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…033)**
 
 ## Open Labels (blocks completion)
 
-**17 open (#13–#37 minus closed). Codex fixed #14·#15·#18·#21·#26·#29 + ADR-024/029/030 — all UNCOMMITTED, so no hashes yet. **#33–#36 closed. #37 (7 fixture comments) waits on the owner-key fixture regeneration.**
+**12 open, ledger runs to #59.** The rebuild work (#14·#15·#18·#21·#26·#29·#33–#37 + ADR-024/029/030) is merged at `253cab4`. Newest: #58·#59 from `/code-review` 2026-09-01.
 
 ## Open Feedback (ledger in `PROJECT_LOG.md`)
 
 - **#3** `G3` · **#6** `P2` author email (leave it) · **#8** `C1` 35% vs 40% — observations, not blockers
 - **Routing:** `/build` #13·#14·#15·#21·#26·#29 · `/debug`-first #18·#19·#25 · **closed by design** #16·#17·#20·#22·#23·#24·#27·#28·#30·#31
-- **#32 closed 2026-08-29** — 12 harness tags removed at the source (`~/.harness-src`, self-test 91/91) and copied back; harness **v9.18**. `L2` missing them was not a bug: `is_deliverable()` exempts harness files and `b_leak_harness_ok` tests that. **The exemption is correct and stays** — it covers a different axis (do not BLOCK) than this fix (do not publish). **`gate.py:1049` is the detection regex, never remove it**
 - **#29** `db/models.py:107` `Mapped[float]` vs `Numeric(asdecimal=True)` — write float, read Decimal, no precision/scale. **Needs a round-trip integration test, not just a type fix**
+- **#58** `/code-review` — real-assessment UI renders the top-3 recommendations as the full 「적격 상품 목록」 (and empty 「부적격 사유」); the demo path shows the real screen_loan output. **User's call**: fix the label (1 line), extend the API contract (→ `/design`), or accept as a known limit. **#59** `_to_won` punctuation-comma edge (low). Ledger in `PROJECT_LOG.md`.
 
 ## Next Action
 
-**Read `docs/긴급/세션인계.md` first — it carries the deployment facts, the SSH/compose commands, and why each remaining item is ordered where it is.**
+**Read `docs/긴급/세션인계.md` first** (deployment facts, SSH/compose commands), **then `docs/반영계획_2026-09-01.md`** (what to do and in what order).
 
-1. **`/code-review` + `/security-review`, once each.** Slot is per commit range and deploy is done, so this is the place. `/security-review` now sees the visitor-key header path **actually exposed to the internet**, not just present in code.
-2. **UI pair, handled together (user's call)** — `#57` dark mode text invisible (heavier: screens go in the video and the PDF; a one-line `[theme] base = "light"` closes it), `#55` no progress indicator during synchronous guidance. Detail in `docs/배포후_검토목록.md` §5.5.
-3. **`core.py` split re-judgement (`#38`)** — **not splitting is also a decision.** Criteria in `docs/배포후_검토목록.md` §2.1.
-4. **`/debug` on `#18`·`#25`** — symptom known, cause not. `#19` was closed by `/code-review`.
-5. **Video demo → portfolio PDF.**
+**Credential incident — stage 0, user only, blocks nothing else but do it first.** The real values in the local `.env` went into three LLM review sessions (Claude/Codex/Gemini). Not a repo leak — `.env` is gitignored and no value appears in history or docs — but it *is* transmission to three external services. Rotate the OpenAI key, change `POSTGRES_PASSWORD` (local + EC2), and check whether the EC2 `.env` carries `OPENAI_API_KEY` at all: if it does, ADR-031 §31.3 ("no server key in prod") is not actually holding and needs its own verdict.
 
-**Local dev needs `PGPORT=5433`** (Homebrew Postgres moved off 5432 so a coursework container can own it; `~/.zshrc` exports it, so a fresh shell just runs `pytest`).
+1. **~~Review slots~~ — done 2026-09-01, both spent for this range.** `/code-review` → #58 (user's call), #59 (low). `/security-review` → no HIGH/MEDIUM (deploy config + visitor-key path clean). Detail: `PROJECT_LOG.md` 검증 결과.
+2. **Follow `docs/반영계획_2026-09-01.md` — the plan of record.** Built from `docs/최종_통합의견_2026-09-01.md` (3-LLM cross review). Six stages, finishing 09-10, 8 days of slack.
+   - **Submission is a link with no attachment field.** So the web landing page at `gwang.dev` **is** the portfolio; the PDF is deferred. Self-hosted, because Notion/Google Docs are routinely blocked as SaaS in financial-sector networks.
+   - That single point of failure raises three items to submission-critical: **container `restart` policy** (`ui`/`app`/`postgres` have none — a reboot kills the live link), **`#57` dark mode**, **mobile layout**.
+   - **`#58` → label fix** (top-3 is ADR-025's intent; the screen just has to say so). **Live input stays up** (the integrated review advised pulling it; the two grounds close in a day).
+   - UI **visual** refresh is in scope (stage 4, 1.5d), UX changes are not.
+3. **`/debug` on `#18`·`#25`** — symptom known, cause not. `#19` was closed by `/code-review`.
+4. **Deferred with reasons** (plan §5): `core.py` split (`#38`), dual-parser UI wiring, internal mTLS, dependency lock, `#59`. Each carries a reopen condition.
 
 **What this project proved about finding defects:** reading found 7, `compose up` found 2 (both start-blocking), the first real LLM run found 4, and **real use after deploy found 2 more** — a `KeyError` that killed the page and a 10,000x parse error. `#47`·`#48`·`#49` were not reachable by reading. That is why review waited for deploy, and the result supported it.
 
@@ -90,6 +94,7 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…033)**
 
 **Halted: no.** Session handoff only. **`docs/긴급/세션인계.md` is the cold-start entry point**; `미결이슈.md` beside it is superseded and kept as history.
 
-## Machine State (2026-08-29)
+## Machine State (2026-09-01)
 
-`pytest 99 passed` (was 89) · `test_gate 91/91` · `gate BLOCK 1 (G3) · WARN 9` · `S0` clean · `S3`·`S4` 0 · **`S2` 8 → 9 (that is #33)** · env `pytest` / `python3.11`
+`pytest 110 passed` · `test_gate 91/91` · `gate BLOCK 1 (G3) · WARN 11` · `S3`·`S4` 0 · live demo HTTP 200.
+**Run tests as `PGPORT=5433 pytest`** — Homebrew Postgres sits on 5433 (a coursework container owns 5432). `~/.zshrc` exports it for interactive shells only, so tooling that spawns a non-interactive shell silently skips the 41 DB tests.

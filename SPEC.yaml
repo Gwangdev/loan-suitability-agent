@@ -262,6 +262,41 @@ exclude:
 #
 #       Not deployed to the public host (ADR-031 §31.3): the worker has no key
 #       there and would race the visitor for PENDING rows.
+#
+#   portfolio host   `gwang.dev` root, static files served by Caddy's
+#       file_server. Added 2026-09-01 (/design §5, scope expansion) because the
+#       application form the service is submitted to accepts a link and has no
+#       attachment field, so the portfolio itself has to be reachable at a URL.
+#       Recorded here, not under endpoints:, because gate.py extracts routes
+#       from code_roots (loan_agent) and a Caddy route is invisible to it —
+#       invisible to the gate is not the same as not a public surface.
+#
+#       Only the HOST is spec-managed. The page CONTENT is a /handoff artifact,
+#       the same layer as the video; putting "present a portfolio" into a loan
+#       service spec would pollute the service contract with delivery concerns.
+#
+#       Asymmetric to loan.gwang.dev ON PURPOSE. That host reverse-proxies
+#       ui:8501; this one serves files directly. Proxying the portfolio through
+#       `ui` would mean Streamlit dying takes the portfolio with it, and that
+#       failure mode is measured, not hypothetical: app/ui/postgres carry
+#       restart "no" while caddy carries unless-stopped, so a reboot leaves the
+#       proxy alive in front of nothing.
+#
+#       One symmetry MUST hold: the security header block (HSTS, nosniff,
+#       frame-deny, referrer policy) is shared by both hosts via a Caddy
+#       snippet. Same audience, same threat. The access-log key filter stays on
+#       the service host alone — no key ever reaches this one, so its absence
+#       here is a scope fact, not a gap.
+#
+#       Error shape differs from the API by design: this host returns Caddy's
+#       default 404 page, the API returns problem+json. Different audiences —
+#       a browser reading a document versus a client parsing a body.
+#
+#       The permission surface is the DIRECTORY, not a request. `root` publishes
+#       whatever sits in it, so two constraints are binding: directory listing
+#       stays off (Caddy's file_server default; never add `browse`), and only
+#       publishable files go in that directory. Never point it at the repo
+#       working tree — .env lives there.
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
