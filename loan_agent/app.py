@@ -67,7 +67,10 @@ st.set_page_config(
 # 드는 시간만 있으면 되므로 짧게 잡는다.
 CLIENT_TIMEOUT_MARGIN_SEC = 10
 
-BADGE_COLOR = {"승인가능": "#1f9d55", "상담필요": "#d97706", "어려움": "#dc2626"}
+# 판정별 배지가 쓸 CSS 클래스. 색 자체는 `static/apple.css`가 갖는다 — 파이썬이 색
+# 사전을 들고 있으면 판정 어휘를 바꿀 때 코드와 스타일 두 곳을 함께 고쳐야 하고,
+# 한쪽만 고치면 어긋난 채로 나간다. 여기 남는 것은 「어떤 판정인가」뿐이다.
+BADGE_MODIFIER = {"승인가능": "eligible", "상담필요": "conditional", "어려움": "ineligible"}
 
 # 안내문 생성 대기 시간이 길어 화면이 답답해지는 문제를 반영한다.
 #   안내문 생성이 수 초 걸리므로, 대기 중 화면이 멈춘 것처럼 보이지 않도록
@@ -183,8 +186,11 @@ def _withheld_message(payload: dict) -> str:
 
 
 def _badge_html(verdict: str) -> str:
-    color = BADGE_COLOR.get(verdict, "#6b7280")
-    return f"<span class='apple-badge' style='background:{color};'>{verdict}</span>"
+    """판정을 배지로 그린다. 색은 클래스가 정하고 여기서는 고르지 않는다."""
+    modifier = BADGE_MODIFIER.get(verdict)
+    # 모르는 판정이 오면 기본 배지로 둔다. 색을 지어내면 화면이 판정을 아는 척한다.
+    css_class = f"apple-badge apple-badge--{modifier}" if modifier else "apple-badge"
+    return f"<span class='{css_class}'>{verdict}</span>"
 
 
 def _usage_value(usage, field: str):
@@ -247,7 +253,14 @@ def _render_result(out: dict, screen: dict = None):
                 # 화면 지표를 간이 DTI → 실제 DSR로 교체.
                 #   월상환액 내역(기존/신규)과 가정값을 함께 보여 근거를 투명하게 노출한다.
                 dsr_pct = f"{screen['DSR'] * 100:.1f}%" if screen["DSR"] is not None else "확인 불가"
-                st.write(f"상환능력: **{screen['상환능력']}**  ·  DSR(연간 원리금상환액÷연소득): **{dsr_pct}**")
+                # DSR이 이 카드에서 가장 중요한 숫자다. 문장 안에 굵게만 넣으면 옆의
+                # 다른 굵은 글자와 같은 무게로 읽혀 무엇을 먼저 보아야 하는지가 사라진다.
+                st.markdown(
+                    f"<div class='metric-label'>DSR · 연간 원리금상환액 ÷ 연소득</div>"
+                    f"<div class='metric-figure'>{dsr_pct}</div>"
+                    f"<div>상환능력 <strong>{screen['상환능력']}</strong></div>",
+                    unsafe_allow_html=True,
+                )
                 _mp = screen["월상환액"]
                 st.caption(
                     f"※ 월상환액(가정 연 {_mp['가정']['연금리']*100:.0f}%·{_mp['가정']['기간개월']}개월, 원리금균등): "
@@ -344,12 +357,18 @@ def _render_data_notice():
     저장되지 않는 것. 「저장하지 않는다」만 적으면 무엇이 남는지가 빠지고,
     「저장한다」만 적으면 원문이 남지 않는다는 사실이 가려진다.
     """
-    st.warning(
-        "**실제 개인정보를 입력하지 마세요.** 이름·주민등록번호·계좌번호·연락처는 받지 않습니다.\n\n"
-        "· 상품 정보는 **합성 데이터**이며 실제 금융상품이 아닙니다\n"
-        "· 저장되는 것: 제출한 **구조화 값**(소득·부채·신용등급·희망금액)과 판정 결과\n"
-        "· 저장되지 않는 것: **자유 서술 원문**과 LLM 프롬프트 전문, 그리고 입력하신 **API 키**\n\n"
-        "판정은 결정적 규칙이 계산하며 승인·거절을 확정하지 않습니다. 최종 결정은 사람이 합니다."
+    # `st.warning`을 쓰지 않는 이유는 `static/apple.css`의 `.notice-bar` 주석에 있다.
+    st.markdown(
+        "<div class='notice-bar'>"
+        "<div class='notice-bar__head'>⚠️ 실제 개인정보를 입력하지 마세요 — 이름·주민등록번호·계좌번호·연락처는 받지 않습니다.</div>"
+        "<ul class='notice-bar__list'>"
+        "<li>상품 정보는 <strong>합성 데이터</strong>이며 실제 금융상품이 아닙니다</li>"
+        "<li>저장되는 것 — 제출한 <strong>구조화 값</strong>(소득·부채·신용등급·희망금액)과 판정 결과</li>"
+        "<li>저장되지 않는 것 — <strong>자유 서술 원문</strong>, LLM 프롬프트 전문, 입력하신 <strong>API 키</strong></li>"
+        "</ul>"
+        "<div class='notice-bar__foot'>판정은 결정적 규칙이 계산하며 승인·거절을 확정하지 않습니다. 최종 결정은 사람이 합니다.</div>"
+        "</div>",
+        unsafe_allow_html=True,
     )
 
 
@@ -566,7 +585,7 @@ def main():
         )
         st.button("📝 자연어에서 아래 항목 채우기", on_click=_fill_form_from_text)
 
-        st.markdown("<div class='card-eyebrow' style='margin-top:14px;'>2. 항목 확인·보완 (제출 기준)</div>",
+        st.markdown("<div class='card-eyebrow card-eyebrow--stacked'>2. 항목 확인·보완 (제출 기준)</div>",
                     unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
         with c1:
