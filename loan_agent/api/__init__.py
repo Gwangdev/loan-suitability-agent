@@ -13,7 +13,7 @@
 """
 from fastapi import FastAPI
 
-from loan_agent.api import assessments, demo, errors, explanations, health, parsing
+from loan_agent.api import assessments, demo, errors, explanations, health, limits, parsing
 
 
 app = FastAPI(
@@ -27,6 +27,9 @@ app = FastAPI(
 )
 
 errors.install(app)
+# 상한은 라우터보다 먼저 건다. 미들웨어는 나중에 등록된 것이 바깥에 놓이므로,
+# 본문 크기·매체 타입 검사가 핸들러보다 앞서 돌아 거절이 처리 비용 없이 끝난다.
+limits.install(app)
 app.include_router(health.router)
 app.include_router(assessments.router)
 app.include_router(explanations.router)
