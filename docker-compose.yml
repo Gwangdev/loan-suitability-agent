@@ -17,9 +17,9 @@ services:
       - --server.port=8501
       - --server.address=0.0.0.0
       - --server.headless=true
-    env_file:
-      - path: .env
-        required: false
+    # env_file을 두지 않는다. `.env` 전체를 넘기면 화면이 쓰지도 않는 DB 비밀번호와
+    # 서버 OpenAI 키가 이 컨테이너 환경에 들어간다. 화면은 API를 부를 뿐 DB에 접속하지
+    # 않고, 방문자 키는 세션 메모리에서만 흐른다(ADR-024 §24-R). 필요한 값만 적는다.
     environment:
       API_BASE_URL: http://app:8000
     user: "10001:10001"
