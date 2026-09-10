@@ -383,6 +383,11 @@ def _fill_form_from_text():
     job = p.get("직장유형", "제한없음")
     st.session_state.f_job = job if job in JOB_OPTIONS else "제한없음"
     st.session_state.f_collateral = bool(p.get("담보보유"))
+    # 못 읽은 부채는 위젯 제약상 0으로 채울 수밖에 없다. 그 0이 파서의 실패인지
+    # 사용자의 값인지는 값만 봐서는 갈리지 않으므로 실패 여부를 따로 남긴다. 다른
+    # 금액은 0이 곧 미입력이라 필수항목 검증이 잡으므로 이 표식이 필요 없다.
+    st.session_state.debt_unread = p.get("부채") is None
+    st.session_state.amount_confirmed = False   # 값이 새로 들어왔으므로 확인을 다시 받는다
 
 
 def _form_customer() -> dict:
@@ -469,6 +474,7 @@ def _fill_input(text: str):
 
 def _reset_input():
     st.session_state.customer_input = ""
+    st.session_state.debt_unread = False
     for k in ("last_result", "last_input", "is_demo", "last_screen"):
         st.session_state.pop(k, None)
 
@@ -583,6 +589,10 @@ def main():
             max_chars=MAX_INPUT_CHARS,  # [비용 보호] 입력 길이 상한 → 토큰 폭증 차단
             placeholder="예) 월급 350만원 받는 정규직이고 부채는 800만원 있어요. 신용등급 3등급이고 2000만원 대출받고 싶어요.",
         )
+        # 단위를 적지 않은 숫자를 파서가 어떻게 읽는지 미리 알린다. 규칙을 말해 두면
+        # 사용자가 "2000만원"처럼 단위를 붙이거나, 아래 폼에서 틀린 자리수를 알아본다.
+        st.caption("단위를 적지 않은 숫자는 **만원**으로 읽습니다 (「월급 350」 = 350만원). "
+                   "원 단위로 적으시려면 「3,500,000원」처럼 단위를 붙여 주세요.")
         st.button("📝 자연어에서 아래 항목 채우기", on_click=_fill_form_from_text)
 
         st.markdown("<div class='card-eyebrow card-eyebrow--stacked'>2. 항목 확인·보완 (제출 기준)</div>",
@@ -604,14 +614,34 @@ def main():
             st.error("보완이 필요한 항목: " + ", ".join(f"**{m}**" for m in missing)
                      + " — 자유 서술로 채우거나 위 항목을 직접 입력하세요.")
 
+        # 읽지 못해 0이 된 항목은 값만으로는 드러나지 않으므로 따로 말해 준다.
+        # 사용자가 값을 채우면 사라지고, 정말 0이면 남는다 — 그때의 확정은 아래 확인이
+        # 맡는다. 여기서 실행을 따로 막으면 부채가 실제로 0인 사람이 빠져나올 수단이
+        # 없어진다(0을 0으로 고칠 수는 없다).
+        if st.session_state.get("debt_unread") and not st.session_state.get("f_debt"):
+            st.warning("자유 서술에서 **부채** 금액을 읽지 못해 0으로 두었습니다. "
+                       "값이 맞는지 확인하고, 다르면 직접 입력하세요.")
+
+        # 파서가 자리수를 틀릴 수 있는 표기가 남아 있다(「500,000」은 50만원과 50억 중
+        # 어느 쪽인지 표기만으로 갈리지 않는다). 표기 규칙으로 다 풀리지 않으므로
+        # 마지막 확인을 사람이 한다. 금액이 바뀌면 확인은 무효가 되어야 하므로,
+        # 직전 실행의 금액과 다르면 체크를 지운 뒤 위젯을 그린다.
+        amount_sig = (customer["월소득"], customer["부채"], customer["희망금액"])
+        if st.session_state.get("_amount_sig") != amount_sig:
+            st.session_state["_amount_sig"] = amount_sig
+            st.session_state["amount_confirmed"] = False
+        st.checkbox("위 금액을 확인했습니다 (자리수·단위 포함)", key="amount_confirmed")
+        confirmed = st.session_state.get("amount_confirmed", False)
+
         run_count = st.session_state.get("run_count", 0)
         quota_left = MAX_RUNS_PER_SESSION - run_count
+        blocked = bool(missing) or not confirmed
         col_a, col_b = st.columns(2)
         with col_a:
-            screen_clicked = st.button("결정적 심사 (키 불필요)", disabled=bool(missing))
+            screen_clicked = st.button("결정적 심사 (키 불필요)", disabled=blocked)
         with col_b:
             run_clicked = st.button("AI 안내문까지 생성 (키 필요)", type="primary",
-                                    disabled=(bool(missing) or api_key is None or quota_left <= 0))
+                                    disabled=(blocked or api_key is None or quota_left <= 0))
         st.caption(f"이번 세션 AI 실행 {run_count}/{MAX_RUNS_PER_SESSION}회 · 남은 실행 {max(quota_left, 0)}회")
 
     # ④-a 결정적 심사만 (키·토큰 0) — 폼이 진실의 원천이므로 배지·판정이 폼과 정확히 일치(A1 해소).

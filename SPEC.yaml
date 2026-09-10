@@ -175,6 +175,18 @@ code_roots:
 #   missing_fields     required fields still absent, as before
 #   degraded           true when llm_candidate is null, so a reader can tell
 #                      "the two agreed" apart from "only one parser ran"
+#
+#   Amended 2026-09-10 (ADR-034). A candidate field the parser could not read is
+#   null, and 부채 is the field where that distinction carries weight: 0 is a
+#   valid answer there ("no debt"), so filling an unread 부채 with 0 turns a
+#   parse failure into a claim. It did — "부채 오천만원" in Hangul numerals
+#   screened as debt-free and flipped the verdict from 상담필요 to 승인가능,
+#   toward approval. 부채 therefore joins the required set with a predicate of
+#   its own: absent means missing, 0 does not. Response SHAPE is unchanged —
+#   missing_fields can now carry 부채, and rule_candidate can carry null. The
+#   other required fields keep 0/99 as their missing marker because 0 is
+#   impossible for them by domain (income 0 leaves DSR undefined, requested 0 is
+#   not a case), so this is a difference in field nature, not sibling asymmetry.
 # Nothing is stored, and code never reconciles the two — a human picks. A missing
 # key degrades the response, it does not fail it: R5's contract is "structured
 # candidates come back", and one parser still satisfies that. 200 either way.
