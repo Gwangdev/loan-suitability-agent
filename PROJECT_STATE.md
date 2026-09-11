@@ -4,10 +4,10 @@
 > **Keep it at 100 lines or fewer.** If exceeded, run `/compact`.
 > Operational file — English. Korean stays in `PROJECT_LOG.md` and user-facing output.
 
-- **Version:** v21 (2026-09-04 · plan stages 1–4 done · **SQLD failed (56) — the portfolio is now the sole credential** · **read `docs/긴급/세션인계.md` FIRST**)
-- **Updated:** 2026-09-04 · **Harness:** v9.19
+- **Version:** v23 (2026-09-11 · compacted from v22 · plan stages 1–4 done, stage 5 next · **SQLD failed (56) — the portfolio is the sole credential**)
+- **Updated:** 2026-09-11 · **Harness:** v9.19, with `tools/gate.py`·`tools/test_gate.py`·`reference/commit-protocol.md` synced from v9.21 (origin files edited, origin not committed — #81)
 - **Goal:** **Loan Decision Support — a verifiable loan-consultation decision-support platform**, the single flagship portfolio piece for the 2026 Hanwha Finance **Platform-IT** application. Deadline 2026-09-18 15:00 (H-FIT 09-20). **SQLD came back 56 (fail) on 2026-09-04, so that credential is gone and this project carries the application alone** — quality bar rises accordingly.
-- **Current step:** **Deployed. https://loan.gwang.dev is live** — TLS via Caddy/Let's Encrypt, `8000`/`8501` closed, reverse proxy is the only entrypoint. Rebuild branch merged to `main` (`253cab4`), README rewritten to match reality (`dca98ee`), remote in sync, tree clean. **PIPELINE STAGE: `/build`. `/design` §5 approved 2026-09-03.** Both review slots for this range are spent (2026-09-01): `/code-review` → #58·#59; `/security-review` → no HIGH/MEDIUM. EC2 spot-check added #60·#61; local 375px measurement added #62·#63 (both closed same day). **Plan stages 1–2 are DEPLOYED AND VERIFIED on EC2 (2026-09-04, from the MacBook — it has docker and the pem the desktop lacks).** `#60` server moved to `main`; `#61` proved by an actual reboot (4 containers back in 15s, all healthy in 27s); `#64` found and closed — the apex `gwang.dev` had no DNS record, so the submission domain could never get a certificate. **`gwang.dev` now serves the portfolio host over TLS, independent of the app containers.** **Stage 0 (credential rotation) is closed as 미조치 by the user's decision.** **Stage 3 landed the same day** — data-handling notice, `env_file` off the UI, and the 413/415/429 the spec had only promised (`117 passed`). `#66` records that the spec's "keyed on client address" cannot separate visitors here: every request reaches `app` from the one `ui` container. **Stage 4 (visual) landed 09-04**: design tokens, type/space scales, result-screen hierarchy, mobile density. Style values are now out of Python entirely (`#67`), locked by `tests/test_style_boundary.py`. `#68` — a global alert restyle silently stripped `st.info`'s semantic blue; only opening a browser caught it. **14 defects open.** Work order lives in `docs/반영계획_2026-09-01.md`, not here.
+- **Current step:** **Deployed — https://loan.gwang.dev is live**; Caddy (TLS) is the only entrypoint and `gwang.dev` serves the static portfolio independent of the app containers. **PIPELINE STAGE: `/build`.** Plan stages 1–4 were deployed and verified by 09-04 (narrative moved to `PROJECT_LOG.md` 압축 v22→v23). **2026-09-11 checkpoint in progress** — uncommitted: README short version, JSON request log + correlation ID (#70–#72, #74), load evidence (#75), both API middlewares rewritten as plain ASGI (#76). **Both review slots spent for this range:** `/code-review` → #77 (fixed); `/security-review` → no finding at confidence ≥8, out-of-scope #78·#79 recorded open.
 
 ## Spine (never dilute — user-confirmed)
 
@@ -22,7 +22,7 @@ Subtraction and addition are a pair. Full table, four portfolio axes, 3-step nar
   - Recommending/brokering a product → Financial Consumer Protection Act **Arts. 17, 19**
   - Real personal credit data → **PIPA Arts. 15/16/21/30** + Credit Information Act
   - Offshore transfer to an LLM provider → PIPA cross-border transfer provisions
-  - **Electronic Financial Transactions Act Arts. 2(1), 21** (ledger A7). The Supervision Regulation is a delegated notice *under Art. 21*, so citing it without the statute was a structural gap. **Three of four definitional elements fail here, and the third — "used automatically without communicating with staff" — fails for the same reason 37-2 does: a human decides. One boundary, two statutes.**
+  - **Electronic Financial Transactions Act Arts. 2(1), 21** (ledger A7). The Supervision Regulation is a delegated notice *under Art. 21*, so citing it without the statute was a structural gap. **Of its definitional elements only "via electronic means" holds; operator, financial product/service, and "used automatically without communicating with staff" all fail — the last for the same reason 37-2 does: a human decides. One boundary, two statutes.**
 - **Forbidden automated actions.** ①binding approve/decline ②accepting or storing real personal/credit data ③persisting or logging raw free text or full prompts ④letting LLM output alter verdict, recommendation, or DSR ⑤emitting any figure not obtained from the CSV ⑥publishing guidance lacking the disclaimer or failing Eval ⑦storing/logging an API key or writing it to the global env ⑧connecting to a real financial-institution product API ⑨external transmission, production or permission changes without approval.
 - **Data classification.** Public = synthetic CSV, rules, verdict logic, fixtures (labelled synthetic on screen). **Not collected** = real names, RRN, account numbers, contacts. **Not persisted** = raw free text, full prompts. Operational secret = OpenAI keys — session memory only, passed as an argument, never `os.environ`, never logged, **and never over plaintext HTTP (ADR-031 §31.5)**. Non-sensitive metadata = audit events, correlation IDs, latency, tokens, error codes.
 - **Reference standards (ADR-033).** IEEE 754's limits acknowledged and measured (ADR-032). `ISO/IEC/IEEE 29148`/`42010`, the Supervision Regulation and ISMS-P are used for their **intent**. **"IEEE compliance" is never claimed** — 830/1471/829 were superseded.
@@ -43,7 +43,7 @@ Subtraction and addition are a pair. Full table, four portfolio axes, 3-step nar
 
 ## Active Design Decisions
 
-Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…033)**. Reversing any means deleting it here and moving it to `PROJECT_LOG.md` **with the scope it invalidates**.
+Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…034)**. Reversing any means deleting it here and moving it to `PROJECT_LOG.md` **with the scope it invalidates**.
 
 - **ADR-001** FastAPI modular monolith. Reverse only for independent deployment, process-boundary fault isolation, diverging scale/security needs, or real load — **never to show more technology.** Also the answer to "the target org runs EKS, why a monolith?"
 - **ADR-004 / 019** App-level check **plus** DB constraint. Different bypass paths, so not duplication.
@@ -59,42 +59,40 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…033)**
 - **ADR-031** **AWS EC2 single instance + the existing compose.** EKS rejected. Prod carries **no server key and no worker**. **TLS is mandatory** — without it the visitor-key feature stays off. Stop: no deploy by 09-06 → video demo becomes primary evidence, README badge comes down. **Amended 2026-09-01:** the instance now serves **two** hosts — `loan.gwang.dev` proxies the app, `gwang.dev` root serves the static portfolio **directly from Caddy**, so app failure cannot take the submission link down. Caddy stays the sole entrypoint.
 - **ADR-032** Money stays `float`, **measured** at the DSR band boundary. **Valid only while** inputs are integer won, there is no accumulation, and thresholds are 2-decimal. Any of those breaking reopens it.
 - **ADR-033** Reference-standard scope fixed. **IEEE compliance is never claimed.**
+- **ADR-034** **An unread amount is absent, not zero.** The rule parser returns `None` for a 부채 it could not read, and 부채 joins the required set with a predicate of its own — absence is missing, `0` is not. 부채 is the only field where `0` is a valid answer, so filling an unread one with `0` turned a parse failure into "no debt" and flipped a verdict toward approval. The other required fields keep 0/99 because those values are impossible for them by domain. **Hangul-numeral support is a separate matter** — it would shrink the cases, not remove the cause. **No new endpoint; response shape unchanged.**
 - **Data model frozen:** `docs/데이터모델.md`. **Never merge the two index migrations.**
 - **`G3` can never be cleared.** Recorded, not clearable. **Never silence the axis.**
 
 ## Open Labels (blocks completion)
 
-**11 open, ledger runs to #63.** The rebuild work (#14·#15·#18·#21·#26·#29·#33–#37 + ADR-024/029/030) is merged at `253cab4`. Closed 2026-09-03: #57·#58·#61 (code) · #62·#63 (found and closed while doing 1-4). #60 is half-closed — docs corrected, server untouched.
+Ledger runs to **#81**. Last full count: **14 open through #69 (2026-09-04)** — not recounted since. Added 2026-09-11: **#70 partly open** (the worker path cannot carry the correlation ID — `explanation_run` has no column and the data model is frozen, so it needs `/design`; uvicorn's own startup/error logs are still plain text) · **#75 pending** (load result files carry a `-dirty` hash — re-measure after commit). Closed 2026-09-11: #71·#72·#73·#74·#76·#77·#80·#81. **Open, pre-existing, found in the security review:** #78 (`parsing-preview` lets LLM-parser failures become an unhandled 500 whose message is logged — the worker logs only a run ID) · #79 (parser agent `verbose=True` may print raw free text, forbidden ③ — not yet confirmed by running it).
 
 ## Open Feedback (ledger in `PROJECT_LOG.md`)
 
 - **#3** `G3` · **#6** `P2` author email (leave it) · **#8** `C1` 35% vs 40% — observations, not blockers
-- **Routing:** `/build` #13·#14·#15·#21·#26·#29 · `/debug`-first #18·#19·#25 · **closed by design** #16·#17·#20·#22·#23·#24·#27·#28·#30·#31
-- **#29** `db/models.py:107` `Mapped[float]` vs `Numeric(asdecimal=True)` — write float, read Decimal, no precision/scale. **Needs a round-trip integration test, not just a type fix**
-- **#60** deploy revision — `docs/배포절차.md` §0·§6 corrected, but the EC2 branch switch itself is **not done**. Until it is, nothing below reaches the server. **#59** `_to_won` punctuation-comma edge (low). Ledger in `PROJECT_LOG.md`.
+- **Open:** `/debug`-first **#18** (worker's parse-output claim is false) · **#25** (`_finish()` overwrites without checking `run.status`) · **#59** `_to_won` punctuation-comma edge (low)
+- **Routing (unchanged):** `/build` #13·#14·#15·#21·#26 · **closed by design** #16·#17·#20·#22·#23·#24·#27·#28·#30·#31. **Closed since v22 listed them:** #19 (08-31) · #29 (08-30, migration `0003` + round-trip test) · #60 (09-04, server on `main`, plan 1-0)
+- **Stage 0 credential rotation closed as 미조치 by the user's decision.** EC2 `.env` carries no `OPENAI_API_KEY` (checked 09-01), so ADR-031 §31.3 holds.
 
 ## Next Action
 
-**Read `docs/긴급/세션인계.md` first** (deployment facts, SSH/compose commands), **then `docs/반영계획_2026-09-01.md`** (what to do and in what order). **Uncommitted working tree** — stages 1–2 sit there awaiting the user's commit.
+1. **Finish the 2026-09-11 checkpoint:** gate is `COMMIT READY` with X2/X3 actually run and both reviews spent → feature-split commits, harness sync first. `docs/랜딩_수정안_2026-09-04.md` is a working file — never commit it; move it to `archive/` once the landing HTML exists.
+2. **Re-measure load after the commit** so `tests/load/results/` carries a clean hash (#75).
+3. **Redeploy to EC2** to ship #70–#76 — a production change, needs approval (⑨). Procedure: `docs/배포절차.md`.
+4. **Plan stage 5** (`docs/반영계획_2026-09-01.md` §3): landing page from the working draft + video; `#55` (no progress indicator) goes first.
+5. **`/debug` on #18·#25** — symptom known, cause not.
+6. **`/design` question for #70:** carry the correlation ID into the worker path — needs a data-model change.
+7. **Deferred with reasons** (plan §5): `core.py` split (#38), dual-parser UI wiring, internal mTLS, dependency lock, #59. Each carries a reopen condition.
 
-**Credential incident — stage 0, user only, blocks nothing else but do it first.** The real values in the local `.env` went into three LLM review sessions (Claude/Codex/Gemini). Not a repo leak — `.env` is gitignored and no value appears in history or docs — but it *is* transmission to three external services. Rotate the OpenAI key, change `POSTGRES_PASSWORD` (local + EC2), and check whether the EC2 `.env` carries `OPENAI_API_KEY` at all: if it does, ADR-031 §31.3 ("no server key in prod") is not actually holding and needs its own verdict.
-
-1. **Follow `docs/반영계획_2026-09-01.md` — the plan of record.** Built from `docs/최종_통합의견_2026-09-01.md` (3-LLM cross review). Six stages, finishing 09-10, 8 days of slack.
-   - **Submission is a link with no attachment field.** So the web landing page at `gwang.dev` **is** the portfolio; the PDF is deferred. Self-hosted, because Notion/Google Docs are routinely blocked as SaaS in financial-sector networks.
-   - Stage 1 code (restart policy, Caddy static host + `site/`, light theme, mobile query) and all of stage 2 (hero text, `#58` label, `USER_GUIDE.md` removed) are **written and locally verified**. What remains for stage 1 is **server-side only**: switch the EC2 checkout to `main`, add the apex `gwang.dev` A record, measure a reboot.
-   - **Next in the plan is stage 3** (notice banner, `ui` `env_file` removal, 413/415/429).
-   - UI **visual** refresh is in scope (stage 4, 1.5d), UX changes are not.
-2. **`/debug` on `#18`·`#25`** — symptom known, cause not. `#19` was closed by `/code-review`.
-3. **Deferred with reasons** (plan §5): `core.py` split (`#38`), dual-parser UI wiring, internal mTLS, dependency lock, `#59`. Each carries a reopen condition.
-
-**What this project proved about finding defects:** reading found 7, `compose up` found 2 (both start-blocking), the first real LLM run found 4, and **real use after deploy found 2 more** — a `KeyError` that killed the page and a 10,000x parse error. `#47`·`#48`·`#49` were not reachable by reading. That is why review waited for deploy, and the result supported it.
+Cold start: `docs/긴급/세션인계.md` (09-04 — deployment facts and SSH/compose commands still valid; its "remaining 3→4→5" is stale) → `docs/반영계획_2026-09-01.md`.
 
 ## Halt Reason
 
-**Halted: no.** Session handoff only. **`docs/긴급/세션인계.md` is the cold-start entry point**; `미결이슈.md` beside it is superseded and kept as history.
+**Halted: no.** `docs/긴급/미결이슈.md` is superseded and kept as history.
 
-## Machine State (2026-09-03, Windows desktop)
+## Machine State (2026-09-11, MacBook)
 
-`pytest 69 passed / 41 skipped` (no local Postgres — the 41 DB tests need one) · `gate BLOCK 1 (G3) · WARN 10` · `S3`·`S4` 0.
-**This desktop has no docker and no `~/.ssh/loan-demo.pem`**, so container and EC2 verification cannot run here. Run the gate as `PYTHONUTF8=1 python tools/gate.py .` — the console is cp949 and the box-drawing output raises `UnicodeEncodeError` without it.
-**The MacBook needs `PGPORT=5433 pytest`** (Homebrew Postgres moved off 5432). Always name the port explicitly: non-interactive shells never read `~/.zshrc`, and the 41 DB tests then skip silently.
+`PGPORT=5433 pytest` → **151 passed / 0 skipped**, judged by exit code (the terminal summary line does not print) · `gate --commit` COMMIT READY (G3 info · WARN 11 · X2 semgrep 0 · X3 pip-audit 0 — both installed via brew 2026-09-11) · `S3`·`S4` 0 · load 533/531/558 req/s, p95 25/170/248 ms at c=10/50/100 (`tests/load/results/`).
+**The MacBook needs `PGPORT=5433`** (Homebrew Postgres moved off 5432; non-interactive shells never read `~/.zshrc`, so the 41 DB tests skip silently). Python with deps: `/opt/homebrew/opt/python@3.11/bin/python3.11`.
+**Windows desktop:** no docker, no `~/.ssh/loan-demo.pem`; run the gate as `PYTHONUTF8=1 python tools/gate.py .` (cp949 console).
+**Personal notes live outside ROOT** (`~/Documents/portfolio/`) — gate `L1` walks all of ROOT regardless of `.gitignore` (#73).
