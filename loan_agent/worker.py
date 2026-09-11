@@ -24,7 +24,7 @@ import uuid
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from loan_agent import core, llm, decision, eval as evaluator
+from loan_agent import core, llm, decision, logs, eval as evaluator
 from loan_agent.db import engine as db_engine
 from loan_agent.db import models
 
@@ -306,7 +306,7 @@ def execute_claimed_run(
     except Exception:
         # 제공자 예외 원문에는 자격증명이 섞일 수 있다. 저장뿐 아니라 로그에도 남기지
         # 않고 실행 식별자와 정규화된 코드만 기록한다.
-        logger.error("explanation run failed: %s", run_id)
+        logger.error("explanation run failed: %s", run_id, extra={"run_id": str(run_id)})
         _finish(run_id, None, None, "PROVIDER_ERROR", int((time.monotonic() - started) * 1000))
         return
 
@@ -330,7 +330,7 @@ def run_for_visitor(assessment_id: uuid.UUID, api_key: str) -> uuid.UUID:
 
 
 def main() -> None:  # pragma: no cover - 실행 진입점
-    logging.basicConfig(level=logging.INFO)
+    logs.configure()
     logger.info("explanation worker started")
     while True:
         reclaim_stale()

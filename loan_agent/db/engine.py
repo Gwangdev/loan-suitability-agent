@@ -39,6 +39,10 @@ def _build_engine() -> Engine:
         # DB가 먼저 끊는 편이 낫다.
         connect_args={"options": "-c statement_timeout=5000"},
         future=True,
+        # 예외 문자열에 바인딩 파라미터를 싣지 않는다. 기본값이면 SQL 오류 메시지에
+        # 소득·부채·멱등키 같은 값이 그대로 들어가고, 처리되지 않은 예외는 그 문자열을
+        # 서버 로그에 남긴다. 로그에는 비민감 메타데이터만 둔다.
+        hide_parameters=True,
     )
 
 

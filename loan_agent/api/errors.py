@@ -16,6 +16,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from loan_agent import logs
+
 logger = logging.getLogger(__name__)
 
 CONTENT_TYPE = "application/problem+json"
@@ -74,8 +76,19 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    """처리되지 않은 예외는 고정 문구로 덮는다. 상세는 로그에만 남는다."""
-    logger.exception("unhandled error on %s", request.url.path)
+    """처리되지 않은 예외는 고정 문구로 덮는다. 상세는 로그에만 남는다.
+
+    이 처리기는 요청 로그 미들웨어 바깥에서 돈다. 그 시점에는 미들웨어가 묶어 둔
+    식별자가 이미 풀려 있으므로, 미들웨어가 `request.state`에 남긴 값을 다시 묶어
+    예외 기록이 요청 로그 한 줄과 같은 식별자를 갖게 한다.
+    """
+    correlation_id = getattr(request.state, "correlation_id", None)
+    token = logs.bind(correlation_id) if correlation_id is not None else None
+    try:
+        logger.exception("unhandled error on %s", request.url.path)
+    finally:
+        if token is not None:
+            logs.unbind(token)
     return problem(request, 500, detail="내부 오류가 발생했습니다.")
 
 

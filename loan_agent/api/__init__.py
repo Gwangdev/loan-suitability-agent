@@ -13,7 +13,14 @@
 """
 from fastapi import FastAPI
 
-from loan_agent.api import assessments, demo, errors, explanations, health, limits, parsing
+from loan_agent import logs
+from loan_agent.api import (
+    assessments, demo, errors, explanations, health, limits, parsing, request_log,
+)
+
+# 로그 형식은 앱을 만들기 전에 정한다. 이후 어느 모듈이 남기는 기록이든 같은 JSON
+# 형식을 따라야 Caddy 접근 로그와 시간순으로 합쳐 볼 수 있다.
+logs.configure()
 
 
 app = FastAPI(
@@ -30,6 +37,9 @@ errors.install(app)
 # 상한은 라우터보다 먼저 건다. 미들웨어는 나중에 등록된 것이 바깥에 놓이므로,
 # 본문 크기·매체 타입 검사가 핸들러보다 앞서 돌아 거절이 처리 비용 없이 끝난다.
 limits.install(app)
+# 요청 로그는 상한보다 나중에 건다. 나중에 등록한 미들웨어가 바깥에 놓이므로, 상한이
+# 거절한 413·415·429도 식별자와 함께 한 줄로 남는다.
+request_log.install(app)
 app.include_router(health.router)
 app.include_router(assessments.router)
 app.include_router(explanations.router)

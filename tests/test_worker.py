@@ -10,6 +10,8 @@ LLM은 부르지 않는다. 파이프라인 호출을 대역으로 바꿔 워커
 """
 import concurrent.futures
 import datetime
+import io
+import json
 import uuid
 
 import pytest
@@ -17,6 +19,7 @@ from types import SimpleNamespace
 
 from sqlalchemy.orm import Session
 
+from loan_agent import logs
 from loan_agent.db import models
 
 
@@ -182,7 +185,12 @@ def test_provider_failure_becomes_explanation_failed(api_db, monkeypatch):
         raise RuntimeError("provider down: token sk-should-not-be-stored")
 
     monkeypatch.setattr(worker, "generate_explanation", _boom)
-    worker.run_once()
+    stream = io.StringIO()
+    logs.configure(stream=stream)
+    try:
+        worker.run_once()
+    finally:
+        logs.configure()
 
     with _session(api_db) as session:
         failed = session.get(models.ExplanationRun, run_id)
@@ -192,6 +200,14 @@ def test_provider_failure_becomes_explanation_failed(api_db, monkeypatch):
         # 정규화된 코드만 남는다. 예외 원문에는 자격증명이 섞일 수 있다.
         assert "sk-should-not-be-stored" not in (failed.error_code or "")
         assert session.get(models.AssessmentCase, case_id).status == "EXPLANATION_FAILED"
+
+    # 로그도 같은 기준이다. 실행 식별자로 찾을 수 있어야 하고, 예외 원문은 싣지 않는다.
+    worker_lines = [
+        line for line in map(json.loads, stream.getvalue().splitlines())
+        if line["logger"] == worker.__name__
+    ]
+    assert [line["run_id"] for line in worker_lines] == [str(run_id)]
+    assert "sk-should-not-be-stored" not in stream.getvalue()
 
 
 def test_eval_failure_withholds_the_explanation(api_db, monkeypatch):

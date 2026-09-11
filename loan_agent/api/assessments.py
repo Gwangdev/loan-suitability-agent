@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from loan_agent import decision
+from loan_agent import decision, logs
 from loan_agent.api import explanations
 from loan_agent.db import engine as db_engine
 from loan_agent.db.models import (
@@ -117,7 +117,9 @@ def _persist(session, payload: AssessmentRequest, idempotency_key: str, request_
     session.add(ExplanationRun(assessment_id=case.id, status="PENDING"))
     session.add(
         AuditEvent(
-            correlation_id=uuid.uuid4(),
+            # 요청 로그와 같은 식별자를 쓴다. 따로 뽑으면 감사 이벤트와 로그를 이을 수
+            # 없다. 요청 밖에서 불렸다면 묶인 값이 없으므로 그때만 새로 만든다.
+            correlation_id=logs.current_correlation_id() or uuid.uuid4(),
             actor_type="consultant",
             action="assessment.created",
             target_type="assessment_case",
