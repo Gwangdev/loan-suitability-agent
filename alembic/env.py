@@ -18,7 +18,10 @@ from alembic import context
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # 이미 만들어진 로거를 끄지 않는다. 기본값은 호출 시점에 존재하는 로거를 전부
+    # 비활성화하는데, 테스트처럼 앱을 불러온 프로세스 안에서 마이그레이션을 돌리면
+    # `loan_agent.*` 로거가 꺼져 이후의 요청·오류 기록이 조용히 사라진다.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 _env_url = os.getenv("DATABASE_URL")
 if _env_url:
