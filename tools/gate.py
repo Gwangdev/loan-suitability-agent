@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+import shlex
 import shutil
 import subprocess
 import unicodedata
@@ -84,20 +85,26 @@ def tracked_set():
     """
     if not os.path.isdir(os.path.join(ROOT, ".git")):
         return None
-    out = subprocess.run("git -c core.quotepath=false ls-files -z", cwd=ROOT,
-                         shell=True, capture_output=True, timeout=30)
+    out = subprocess.run(["git", "-c", "core.quotepath=false", "ls-files", "-z"], cwd=ROOT,
+                         capture_output=True, timeout=30)
     return {p for p in out.stdout.decode("utf-8", "replace").split("\0") if p}
 
 
-def sh(cmd):
+def sh(args):
+    """조회용 외부 명령. 인자 목록을 받아 셸을 거치지 않고 실행한다.
+
+    예전엔 명령을 셸 문자열로 넘겼다. 그러면 경로나 해시처럼 명령에 끼워 넣는 값이
+    셸 문법으로 해석될 수 있고, 검사 대상은 남이 만든 저장소(zip 제출물)일 수 있다.
+    파일 이름 하나가 명령이 되는 경로를 처음부터 두지 않는다.
+    """
     try:
-        return subprocess.run(cmd, cwd=ROOT, shell=True, capture_output=True,
+        return subprocess.run(args, cwd=ROOT, capture_output=True,
                               text=True, timeout=30).stdout
     except Exception:
         return ""
 
 
-def _run(cmd, timeout=300):
+def _run(args, timeout=300):
     """판정에 쓰는 외부 명령 실행. (종료코드, stdout, stderr).
 
     예외는 종료코드 None으로 돌려주고 사유는 stderr 자리에 담는다 — 실행 실패와
@@ -105,10 +112,11 @@ def _run(cmd, timeout=300):
 
     `sh()`와 나눠 쓴다. 그쪽은 조회용 단문(git 상태 등)이라 stdout만 필요하고
     타임아웃이 고정이다. 판정에 쓰는 명령은 종료코드가 결론이므로 이쪽을 쓴다.
-    새 외부 도구를 붙일 때 `subprocess.run`을 직접 부르지 않는다.
+    새 외부 도구를 붙일 때 `subprocess.run`을 직접 부르지 않는다. `sh()`와 같이
+    인자 목록을 받고 셸을 거치지 않는다.
     """
     try:
-        r = subprocess.run(cmd, cwd=ROOT, shell=True, capture_output=True,
+        r = subprocess.run(args, cwd=ROOT, capture_output=True,
                            text=True, timeout=timeout)
         return r.returncode, r.stdout, r.stderr
     except Exception as e:
@@ -177,7 +185,7 @@ def check_provenance():
         add("WARN", "P0", "not a git repository — no history-based defenses available")
         return
 
-    emails = set(sh("git log --format='%ae'").split())
+    emails = set(sh(["git", "log", "--format=%ae"]).split())
     bad = [e for e in emails if e and not any(a in e for a in EMAIL_ALLOW)]
     if bad:
         add("WARN", "P2", f"commit author email exposed: {', '.join(sorted(bad))}")
@@ -204,7 +212,7 @@ def check_provenance():
 def check_history():
     if not os.path.isdir(os.path.join(ROOT, ".git")):
         return
-    subj = sh("git log --format='%s'").splitlines()
+    subj = sh(["git", "log", "--format=%s"]).splitlines()
     if not subj:
         return
     n = len(subj)
@@ -214,7 +222,7 @@ def check_history():
             "    기능 단위 커밋 정책에서는 정상일 수 있다(시행착오가 커밋 전에 끝난다).\n"
             "    다만 저장소를 공개할 때 과정이 보이지 않는다는 점은 감안할 것")
 
-    days = set(sh("git log --format='%ad' --date=short").split())
+    days = set(sh(["git", "log", "--format=%ad", "--date=short"]).split())
     if n >= 15 and len(days) == 1:
         add("WARN", "G2", f"{n} commits on a single day ({days.pop()}) — the throughput itself is a tell")
 
@@ -233,13 +241,13 @@ def check_history():
     # 예전엔 걸린 커밋마다 WARN을 하나씩 냈다. 커밋 60개짜리 저장소에서 경고 62건이
     #   쏟아져 다른 항목이 묻혔다. 한 건으로 묶어 보고한다.
     suspects = []
-    for line in sh("git log --format='%h|%s'").splitlines():
+    for line in sh(["git", "log", "--format=%h|%s"]).splitlines():
         if "|" not in line:
             continue
         h, subj = line.split("|", 1)
         if not re.search(r"제거|삭제|정리|remove|clean", subj):
             continue
-        stat = sh(f"git show --shortstat --format='' {h}").strip()
+        stat = sh(["git", "show", "--shortstat", "--format=", h]).strip()
         m = re.search(r"(\d+) insertion.*?(\d+) deletion", stat)
         if m and int(m.group(2)) <= 2:
             suspects.append((h, subj.strip()[:44], m.group(2)))
@@ -1036,8 +1044,10 @@ def check_api_design():
 # 라벨 잔존은 CLAUDE.md가 "완료 불가"로 규정하지만 여태 검사 주체가 없었다.
 HARNESS_OWNED = (
     "CLAUDE.md", "PROJECT_STATE.md", "PROJECT_LOG.md", "SPEC.yaml",
-    "README.md", "USER_GUIDE.md", "MAINTENANCE.md", "CHANGELOG.md",
+    "HARNESS.md", "USER_GUIDE.md", "MAINTENANCE.md", "CHANGELOG.md", "INSIGHTS.md",
 )
+# README.md는 이 목록에 없다. 설치된 프로젝트의 README.md는 프로젝트 자신의
+# 문서이므로 다른 제출물과 같은 기준으로 유출·라벨을 검사해야 한다.
 HARNESS_DIRS = ("reference", "tools", ".claude", "prompts")
 # prompts/는 최종 산출물이 아니라 그것을 만들 실행 주체에게 넘기는 지시문이다
 # (File Map "산출물 프롬프트 생성"). [미검증]·[확인 필요] 같은 라벨이 여기 나오면
@@ -1095,7 +1105,7 @@ def changeset_report():
         print("\n╭─ changeset\n│ not a git repository\n╰─\n")
         return 0
 
-    status = sh("git status --porcelain=v1 -uall")
+    status = sh(["git", "status", "--porcelain=v1", "-uall"])
     changed = []
     for ln in status.splitlines():
         if not ln.strip():
@@ -1142,6 +1152,10 @@ def changeset_report():
     return 0
 
 
+# test_command는 셸 없이 실행한다. 이 토큰이 인자로 남으면 셸 문법을 기대한 명령이다.
+SHELL_OPERATORS = {"&&", "||", ";", "|", "&", ">", ">>", "<", "2>", "2>&1"}
+
+
 def check_tests_run():
     """커밋 직전에 기능 테스트를 실제로 실행한다.
 
@@ -1157,11 +1171,22 @@ def check_tests_run():
             cmd = _load_spec(path).get("test_command")
         except Exception:
             cmd = None
-    if not cmd:
+    if not cmd or not str(cmd).strip():
         add("WARN", "V1", "no test_command in SPEC.yaml — tests not verified mechanically",
             "    SPEC.yaml에 `test_command: \"./gradlew test\"` 형태로 적으면 커밋 직전에 실행한다")
         return
-    rc, out, err = _run(cmd, timeout=900)
+    # 셸 없이 실행하므로 명령을 인자로 나눈다. 셸 연산자가 인자로 남으면 명령이 적힌
+    # 대로 돌지 않는다. 조용히 다르게 실행하지 않고 실행 실패와 같은 등급으로 막는다.
+    try:
+        argv = shlex.split(str(cmd))
+    except ValueError as e:
+        add("BLOCK", "V1", f"test_command could not be parsed: {e}")
+        return
+    if SHELL_OPERATORS.intersection(argv):
+        add("BLOCK", "V1", f"test_command uses shell syntax — it is run without a shell: {cmd}",
+            "    여러 단계가 필요하면 스크립트 파일로 옮기고 test_command에는 그 경로를 적을 것")
+        return
+    rc, out, err = _run(argv, timeout=900)
     if rc is None:
         add("BLOCK", "V1", f"test command failed to run: {err}")
         return
@@ -1299,8 +1324,8 @@ def check_sast():
             "    `pipx install semgrep` 또는 `brew install semgrep` 후 다시 돌릴 것.\n"
             "    설치 없이는 이 축이 통과가 아니라 미검사 상태다")
         return
-    rc, out, err = _run("semgrep scan --config p/security-audit --json --quiet "
-                        "--metrics=off --timeout 60", timeout=900)
+    rc, out, err = _run(["semgrep", "scan", "--config", "p/security-audit", "--json", "--quiet",
+                         "--metrics=off", "--timeout", "60"], timeout=900)
     if rc is None or not out.strip():
         add("WARN", "X2", "semgrep did not produce a result — not checked",
             "\n".join("    " + ln for ln in (err or "no output").splitlines()[:6]))
@@ -1341,7 +1366,7 @@ def check_deps():
         if shutil.which("npm") is None:
             add("WARN", "X3", "package-lock.json present but npm not available — deps not audited")
         else:
-            rc, out, _ = _run("npm audit --json", timeout=600)
+            rc, out, _ = _run(["npm", "audit", "--json"], timeout=600)
             try:
                 v = json.loads(out).get("metadata", {}).get("vulnerabilities", {})
             except Exception:
@@ -1360,7 +1385,7 @@ def check_deps():
             add("WARN", "X3", "python manifest present but pip-audit not installed — deps not audited",
                 "    `pipx install pip-audit` 후 다시 돌릴 것")
         else:
-            rc, out, _ = _run("pip-audit -f json --progress-spinner off", timeout=600)
+            rc, out, _ = _run(["pip-audit", "-f", "json", "--progress-spinner", "off"], timeout=600)
             try:
                 data = json.loads(out)
                 deps = data.get("dependencies", data if isinstance(data, list) else [])
@@ -1922,8 +1947,7 @@ PAGE_PT = {"A4": (595.0, 842.0)}
 
 
 def _pdf_text(p, layout=False):
-    q = "'" + p.replace("'", "'\\''") + "'"
-    return sh(f"pdftotext {'-layout ' if layout else ''}{q} -") or ""
+    return sh(["pdftotext", *(["-layout"] if layout else []), p, "-"]) or ""
 
 
 def _md_of(pdf):
@@ -2119,7 +2143,7 @@ def check_report_artifacts():
                 "\n".join("    " + a for a in ac[:4]))
 
         # D8 조판이 report.css를 따르는지 대조한다
-        info = sh(f"pdfinfo '{pdf}'")
+        info = sh(["pdfinfo", pdf])
         m = re.search(r"Page size:\s*([\d.]+) x ([\d.]+)", info)
         want = PAGE_PT.get(tok.get("size", "A4"))
         if m and want:
@@ -2128,7 +2152,7 @@ def check_report_artifacts():
                 add("WARN", "D8",
                     f"{rel}: page {w:.0f}x{h:.0f}pt, expected {tok.get('size','A4')} "
                     f"{want[0]:.0f}x{want[1]:.0f}pt")
-        fonts = sh(f"pdffonts '{pdf}'")
+        fonts = sh(["pdffonts", pdf])
         rows = [l for l in fonts.splitlines()[2:] if l.strip()]
         if rows and any(re.split(r"\s+", l.strip())[-5:][0].lower() == "no" for l in rows):
             add("WARN", "D8", f"{rel}: some fonts are not embedded — 한글이 깨질 수 있다")

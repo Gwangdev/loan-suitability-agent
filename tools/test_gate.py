@@ -11,9 +11,11 @@
             예외는 축 A·K10처럼 외부 표준에서 온 검사다. 깨진 적이 없으므로 대신
             **반증 케이스를 함께 넣는다** — 잡는지보다 정상 입력을 통과시키는지가 더 중요하다.
 """
+import ast
 import io
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -58,10 +60,11 @@ def w(d, rel, text=""):
 
 
 def git(d, *cmds):
-    subprocess.run("git init -q", cwd=d, shell=True)
-    subprocess.run("git config user.email t@e.st && git config user.name t", cwd=d, shell=True)
+    subprocess.run(["git", "init", "-q"], cwd=d)
+    subprocess.run(["git", "config", "user.email", "t@e.st"], cwd=d)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=d)
     for c in cmds:
-        subprocess.run(c, cwd=d, shell=True, capture_output=True)
+        subprocess.run(shlex.split(c), cwd=d, capture_output=True)
 
 
 # ── 오탐 방지 (통과해야 하는 것) ─────────────────────────────────────────
@@ -369,6 +372,16 @@ def b_leak_harness_ok(d):
     _w(d, "PROJECT_LOG.md", "| 1 | \uc0ac\uc6a9\uc790 | \uc9c0\uc801 | \uc870\uce58 |\n")
     _w(d, "tools/test_gate.py", '"""[\ud53c\ub4dc\ubc311] \ub3c4\uad6c \ud30c\uc77c\uc740 \uc81c\uc678\ub41c\ub2e4."""\n')
     _w(d, "reference/code-tell-checklist.md", "\uc608\uc2dc: [\ud53c\ub4dc\ubc31N] \uc8fc\uc11d\n")
+
+
+def b_readme_own_project_leak_checked(d):
+    """README.md는 프로젝트 자신의 문서다. 하네스 예외 목록에서 빠져야 라벨 잔존이 잡힌다(L1)."""
+    _w(d, "README.md", "# 프로젝트\n설치 방법. [미검증]\n")
+
+
+def b_harness_md_exempt_ok(d):
+    """HARNESS.md는 하네스 자신의 문서다. 예외 목록에 있어 정상적으로 통과해야 한다."""
+    _w(d, "HARNESS.md", "# 하네스\n라벨 예시: `[미검증]`은 근거가 없는 주장에 붙인다.\n")
 
 
 def b_secret_key_format(d):
@@ -1153,6 +1166,8 @@ CASES = [
     ("라벨 유출(제출물)",       b_leak_label,            ("L1",),        (),               True),
     ("내부 태그 유출(코드)",    b_leak_tag,              ("L2",),        (),               True),
     ("하네스 파일은 제외",      b_leak_harness_ok,       (),             ("L1", "L2"),     None),
+    ("README는 프로젝트 것 — 라벨 검사됨", b_readme_own_project_leak_checked, ("L1",), (), True),
+    ("HARNESS.md는 하네스 것 — 예외",      b_harness_md_exempt_ok, (),        ("L1", "L2"), None),
     ("보안: 키 형식 그대로",     b_secret_key_format,     ("X1",),        (),               True),
     ("보안: 변수에 박은 값",     b_secret_assigned_literal, ("X1",),      (),               True),
     ("보안 반증: 자리표시자",    b_secret_placeholder_ok, (),             ("X1",),          False),
@@ -1312,6 +1327,39 @@ try:
     results.append(("X2 반증: semgrep 출력 파싱", _bad, _out))
 finally:
     shutil.rmtree(_d, ignore_errors=True)
+
+# ── V1: 셸 문법 test_command ─────────────────────────────────────────────
+# 게이트는 test_command를 셸 없이 실행한다. 셸 연산자가 인자로 남으면 명령이 적힌 대로
+# 돌지 않으므로, 조용히 통과하거나 엉뚱한 이유로 실패하지 않고 사유를 밝혀 막아야 한다.
+_d = tempfile.mkdtemp(prefix="gate-t-")
+try:
+    _spec_project(_d, test_ok=True)
+    _w(_d, "SPEC.yaml",
+       'version: 1\ntest_command: "python3 -m unittest discover -s tests -q && true"\n'
+       'endpoints:\n  - GET /api/orders\n  - GET /api/orders/{id}\n')
+    _out = subprocess.run([sys.executable, GATE, _d, "--commit"],
+                          capture_output=True, text=True, timeout=300).stdout or ""
+    _bad = []
+    if "shell syntax" not in _out:
+        _bad.append("셸 연산자를 사유로 밝히지 않음")
+    if "■" not in _out:
+        _bad.append("BLOCK 아님")
+    results.append(("V1: 셸 문법 test_command 차단", _bad, _out))
+finally:
+    shutil.rmtree(_d, ignore_errors=True)
+
+# ── 셸 호출 금지 ─────────────────────────────────────────────────────────
+# 게이트는 남이 만든 저장소도 검사한다. 명령을 셸 문자열로 넘기면 경로 같은 값이 셸
+# 문법이 되는 경로가 생기므로, 게이트와 이 테스트 어디에도 셸 인자를 켜는 호출이 다시
+# 들어오지 않게 한다. 문자열로 찾으면 이 설명문에도 걸리므로 구문 트리로 본다.
+_bad = []
+for _path in (GATE, os.path.abspath(__file__)):
+    for _n in ast.walk(ast.parse(io.open(_path, encoding="utf-8").read())):
+        if isinstance(_n, ast.Call) and any(
+                k.arg == "shell" and isinstance(k.value, ast.Constant) and k.value.value is True
+                for k in _n.keywords):
+            _bad.append(f"{os.path.basename(_path)}:{_n.lineno}")
+results.append(("셸 호출 금지: shell 인자 없음", _bad, ""))
 
 fail = [r for r in results if r[1]]
 print()
