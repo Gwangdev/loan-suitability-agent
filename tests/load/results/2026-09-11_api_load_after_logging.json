@@ -1,0 +1,84 @@
+{
+  "measured_at": "2026-09-11T00:36:17+00:00",
+  "git_commit": "9ece9b4ae2d67c8c85e4eecfc0f9f22d41dd8b9c-dirty",
+  "target": "http://127.0.0.1:8000/api/v1/assessments",
+  "method": "POST",
+  "payload_shape": "fixed valid structured payload",
+  "idempotency_key": "new UUIDv4 for every request",
+  "hardware": {
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "logical_cpus": 10
+  },
+  "pool_configuration": {
+    "pool_size": 5,
+    "max_overflow": 5,
+    "pool_timeout_seconds": 5,
+    "pool_recycle_seconds": 1800,
+    "pool_pre_ping": true,
+    "db_statement_timeout_ms": 5000
+  },
+  "results": [
+    {
+      "concurrency": 10,
+      "requested_duration_seconds": 60,
+      "wall_clock_seconds": 60.016,
+      "total_requests": 24816,
+      "successful_requests": 24816,
+      "error_requests": 0,
+      "error_rate": 0.0,
+      "throughput_requests_per_second": 413.48814370410867,
+      "latency_ms": {
+        "mean": 24.16728050296688,
+        "p50": 22.96375049627386,
+        "p95": 33.06910399260232,
+        "p99": 44.45647503162036,
+        "max": 493.87741700047627
+      },
+      "statuses": {
+        "201": 24816
+      }
+    },
+    {
+      "concurrency": 50,
+      "requested_duration_seconds": 60,
+      "wall_clock_seconds": 60.079,
+      "total_requests": 24483,
+      "successful_requests": 24483,
+      "error_requests": 0,
+      "error_rate": 0.0,
+      "throughput_requests_per_second": 407.5143393805966,
+      "latency_ms": {
+        "mean": 122.57976729181195,
+        "p50": 115.56220799684525,
+        "p95": 215.75222939427476,
+        "p99": 277.6505824929336,
+        "max": 511.8663749890402
+      },
+      "statuses": {
+        "201": 24483
+      }
+    },
+    {
+      "concurrency": 100,
+      "requested_duration_seconds": 60,
+      "wall_clock_seconds": 60.181,
+      "total_requests": 24327,
+      "successful_requests": 24327,
+      "error_requests": 0,
+      "error_rate": 0.0,
+      "throughput_requests_per_second": 404.2335637997232,
+      "latency_ms": {
+        "mean": 246.89360126973625,
+        "p50": 239.2468329926487,
+        "p95": 344.3408375955187,
+        "p99": 405.8605149964569,
+        "max": 589.2955830204301
+      },
+      "statuses": {
+        "201": 24327
+      }
+    }
+  ]
+}

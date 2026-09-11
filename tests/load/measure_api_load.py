@@ -6,12 +6,14 @@ import argparse
 import json
 import os
 import platform
+import subprocess
 import sys
 import time
 import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from statistics import mean
 
 import httpx
@@ -71,6 +73,33 @@ def _percentile(values: list[float], percentile: float) -> float | None:
     upper = min(lower + 1, len(ordered) - 1)
     fraction = index - lower
     return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+
+
+def _git_commit() -> str | None:
+    """측정한 코드가 무엇이었는지 결과 파일이 스스로 말하게 한다.
+
+    수치만 남기면 이후 코드가 바뀌었을 때 그 수치가 어느 시점의 것인지 알 수 없어,
+    문서가 인용하는 근거가 조용히 낡는다. 작업 트리에 커밋되지 않은 변경이 있으면
+    해시만으로는 재현되지 않으므로 그 사실도 함께 적는다.
+
+    추적 중인 파일은 어디서 바뀌었든 미커밋 변경으로 본다. 이 측정 스크립트나 의존성
+    목록처럼 패키지 폴더 밖의 파일도 수치를 바꾸기 때문이다. 문서만 고쳐도 표시가 붙지만,
+    재현되지 않는 결과를 재현된다고 적는 쪽보다 낫다. 추적되지 않은 파일은 코드가 있는
+    자리만 본다 — 전체를 보면 지금 쓰고 있는 결과 파일 자체가 걸려 항상 표시가 붙는다.
+    """
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    try:
+        commit = git("rev-parse", "HEAD")
+        changed = git("status", "--porcelain", "--untracked-files=no")
+        new_code = git("ls-files", "--others", "--exclude-standard", "--", "loan_agent", "alembic", "tests/load")
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    new_code = "\n".join(p for p in new_code.splitlines() if not p.startswith("tests/load/results/"))
+    return f"{commit}-dirty" if (changed or new_code) else commit
 
 
 def _pool_configuration() -> dict:
@@ -135,6 +164,8 @@ def main() -> None:
     print(
         json.dumps(
             {
+                "measured_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "git_commit": _git_commit(),
                 "target": args.url,
                 "method": "POST",
                 "payload_shape": "fixed valid structured payload",
