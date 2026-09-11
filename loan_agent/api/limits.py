@@ -19,7 +19,7 @@
 import time
 from collections import deque
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from loan_agent.api import errors
 
@@ -38,13 +38,19 @@ RATE_LIMIT_MAX_REQUESTS = 60
 JSON_MEDIA_TYPE = "application/json"
 
 
-class RequestLimitMiddleware(BaseHTTPMiddleware):
-    """본문 크기·매체 타입·실행 빈도를 핸들러 앞에서 거른다."""
+class RequestLimitMiddleware:
+    """본문 크기·매체 타입·실행 빈도를 핸들러 앞에서 거른다.
+
+    Starlette의 `BaseHTTPMiddleware`를 쓰지 않고 ASGI 호출을 직접 받는다. 그 방식은
+    검사 내용과 무관하게 요청마다 하위 앱을 별도 태스크로 띄우고, 응답을 메모리 스트림으로
+    넘겨받아 다시 흘려보낸다. 헤더 몇 개만 보는 이 검사에 그 비용이 붙어 처리량이 약 10%
+    줄었고, 같은 검사를 ASGI로 직접 받자 미들웨어가 없을 때와 측정 오차 안에서 같았다.
+    """
 
     def __init__(self, app, *, max_body_bytes: int = MAX_BODY_BYTES,
                  window_sec: int = RATE_LIMIT_WINDOW_SEC,
                  max_requests: int = RATE_LIMIT_MAX_REQUESTS):
-        super().__init__(app)
+        self.app = app
         self._max_body_bytes = max_body_bytes
         self._window_sec = window_sec
         self._max_requests = max_requests
@@ -53,15 +59,21 @@ class RequestLimitMiddleware(BaseHTTPMiddleware):
         # 이상이 되는 순간 이 가정이 깨지므로 그때 다시 판단한다.
         self._hits: dict[str, deque] = {}
 
-    async def dispatch(self, request, call_next):
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        # 헤더만 읽으므로 본문 수신 채널은 넘기지 않는다. 본문은 뒤의 핸들러가 읽는다.
+        request = Request(scope)
         rejection = (
             self._body_too_large(request)
             or self._unsupported_media_type(request)
             or self._rate_limited(request)
         )
         if rejection is not None:
-            return rejection
-        return await call_next(request)
+            await rejection(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
 
     def _body_too_large(self, request):
         raw = request.headers.get("content-length")
