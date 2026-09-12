@@ -4,10 +4,10 @@
 > **Keep it at 100 lines or fewer.** If exceeded, run `/compact`.
 > Operational file — English. Korean stays in `PROJECT_LOG.md` and user-facing output.
 
-- **Version:** v23 (2026-09-11 · compacted from v22 · plan stages 1–4 done, stage 5 next · **SQLD failed (56) — the portfolio is the sole credential**)
-- **Updated:** 2026-09-11 · **Harness:** v9.19, with `tools/gate.py`·`tools/test_gate.py`·`reference/commit-protocol.md` synced from v9.21 (origin files edited, origin not committed — #81)
+- **Version:** v24 (2026-09-12 · `/verify` run once; v23 compacted from v22 on 09-11 · plan stages 1–4 done, stage 5 next · **SQLD failed (56) — the portfolio is the sole credential**)
+- **Updated:** 2026-09-12 · **Harness:** v9.19, with `tools/gate.py`·`tools/test_gate.py`·`reference/commit-protocol.md` synced from v9.21 (origin files edited, origin not committed — #81)
 - **Goal:** **Loan Decision Support — a verifiable loan-consultation decision-support platform**, the single flagship portfolio piece for the 2026 Hanwha Finance **Platform-IT** application. Deadline 2026-09-18 15:00 (H-FIT 09-20). **SQLD came back 56 (fail) on 2026-09-04, so that credential is gone and this project carries the application alone** — quality bar rises accordingly.
-- **Current step:** **Deployed — https://loan.gwang.dev is live**; Caddy (TLS) is the only entrypoint and `gwang.dev` serves the static portfolio independent of the app containers. **PIPELINE STAGE: `/build`.** Plan stages 1–4 were deployed and verified by 09-04 (narrative moved to `PROJECT_LOG.md` 압축 v22→v23). **2026-09-11 checkpoint in progress** — uncommitted: README short version, JSON request log + correlation ID (#70–#72, #74), load evidence (#75), both API middlewares rewritten as plain ASGI (#76). **Both review slots spent for this range:** `/code-review` → #77 (fixed); `/security-review` → no finding at confidence ≥8, out-of-scope #78·#79 recorded open.
+- **Current step:** **Deployed — https://loan.gwang.dev is live**; Caddy (TLS) is the only entrypoint and `gwang.dev` serves the static portfolio independent of the app containers. **PIPELINE STAGE: `/build`.** Plan stages 1–4 were deployed and verified by 09-04 (narrative moved to `PROJECT_LOG.md` 압축 v22→v23). **2026-09-12: `a24d4e6` deployed, then `9a2ff53` (landing page live on gwang.dev; public test count 153) and `e265094` (four Streamlit fixes; `ui` rebuilt only, no worker) pushed and deployed** — both checked with curl and Playwright desktop/mobile.
 
 ## Spine (never dilute — user-confirmed)
 
@@ -35,11 +35,12 @@ Subtraction and addition are a pair. Full table, four portfolio axes, 3-step nar
 | **Scope & regulations fixed (design)** · **Build start** | **approved** | 2026-08-26 |
 | **Design re-run — ADR-029/030 (안 B) · ADR-031 (AWS+TLS) · ADR-024 §24-R** | **approved (all three)** | 2026-08-29 |
 | **`/design` §5 — portfolio host `gwang.dev` as a non-HTTP surface (scope expansion)** | **approved** | 2026-09-03 |
+| **Landing publication (`gwang.dev`) · Streamlit four fixes · both production deploys** | **approved (user, in chat)** | 2026-09-12 |
 | Record & publication (handoff) | pending | |
 
 ## Completion Verdict
 
-**배포 보류** (2026-08-28, unchanged). Grounds: (1) gate BLOCK 1 (`G3`, unclearable), (2) README / CI / container each contradict the implementation, (3) the remaining defects carry no 조치. Basis: `PROJECT_LOG.md` 검증 결과.
+**조건부 완료** (2026-09-12, `independent-verifier`, HEAD `e265094`; supersedes 08-28 「배포 보류」). No user-facing defect in the public deploy (API unreachable, landing hash = HEAD, 153 tests pass, CI green). Full completion is blocked by `G3` (unclearable — **user decides whether it is a permanent exception**) and #84–#88. Basis: `PROJECT_LOG.md` 검증 결과.
 
 ## Active Design Decisions
 
@@ -65,7 +66,7 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…034)**
 
 ## Open Labels (blocks completion)
 
-Ledger runs to **#81**. Last full count: **14 open through #69 (2026-09-04)** — not recounted since. Added 2026-09-11: **#70 partly open** (the worker path cannot carry the correlation ID — `explanation_run` has no column and the data model is frozen, so it needs `/design`; uvicorn's own startup/error logs are still plain text) · #75 closed 2026-09-12 (clean-hash runs at `f80e50f` and `5257504`; same request-path code swung ~14% run to run on the shared MacBook). Closed 2026-09-11: #71·#72·#73·#74·#76·#77·#80·#81. **Open, pre-existing, found in the security review:** #78 (`parsing-preview` lets LLM-parser failures become an unhandled 500 whose message is logged — the worker logs only a run ID). **#79 closed 2026-09-12** (`5257504`): the parser agent's `verbose=True` printed raw free text to stdout — confirmed by an egress-blocked run, turned off, locked by `tests/test_llm_verbose.py`.
+Ledger runs to **#83**. Last full count: **14 open through #69 (2026-09-04)** — not recounted since. Added 2026-09-11: **#70 partly open** (the worker path cannot carry the correlation ID — `explanation_run` has no column and the data model is frozen, so it needs `/design`; uvicorn's own startup/error logs are still plain text) · #75 closed 2026-09-12 (clean-hash runs at `f80e50f` and `5257504`; same request-path code swung ~14% run to run on the shared MacBook). Closed 2026-09-11: #71·#72·#73·#74·#76·#77·#80·#81; 2026-09-12 also #82·#83 (stale public numbers, `9a2ff53`). **`/verify` 2026-09-12 added #84–#90:** #84 `caddy`/`migrate` lack non-root/read-only despite the recorded claim · #85 `app.py` copies the server key into `os.environ` (⑦; unreachable in prod) · #86 state/ledger drift (open count stale) · #87 publication check + sensitive-data scan not run · #88 undecided dead surface (`has_api_key`) and gate warnings · observations #89 (`V1` passes with DB tests skipped) · #90 (no statute links). **Open, pre-existing, found in the security review:** #78 (`parsing-preview` lets LLM-parser failures become an unhandled 500 whose message is logged — the worker logs only a run ID). **#79 closed 2026-09-12** (`5257504`): the parser agent's `verbose=True` printed raw free text to stdout — confirmed by an egress-blocked run, turned off, locked by `tests/test_llm_verbose.py`.
 **Deferred past submission, with reasons:** #18·#25·#70 (worker path — prod runs no worker) · #78 (the API is not exposed publicly and the UI uses the rule parser) · #59 (not reproducible with normal input).
 
 ## Open Feedback (ledger in `PROJECT_LOG.md`)
@@ -77,23 +78,21 @@ Ledger runs to **#81**. Last full count: **14 open through #69 (2026-09-04)** �
 
 ## Next Action
 
-1. **Finish the 2026-09-11 checkpoint:** gate is `COMMIT READY` with X2/X3 actually run and both reviews spent → feature-split commits, harness sync first. `docs/랜딩_수정안_2026-09-04.md` is a working file — never commit it; move it to `archive/` once the landing HTML exists.
-2. **Push** the local commits (GitHub still shows the old README until then) — user go-ahead.
-3. **Redeploy to EC2** to ship #70–#76 — a production change, needs approval (⑨). Procedure: `docs/배포절차.md`.
-4. **Plan stage 5** (`docs/반영계획_2026-09-01.md` §3): landing page from the working draft + video; `#55` (no progress indicator) goes first.
-5. **`/debug` on #18·#25** — symptom known, cause not.
-6. **`/design` question for #70:** carry the correlation ID into the worker path — needs a data-model change.
-7. **Deferred with reasons** (plan §5): `core.py` split (#38), dual-parser UI wiring, internal mTLS, dependency lock, #59. Each carries a reopen condition.
+**Cold start: `docs/긴급/세션인계.md` (2026-09-12) first** — both approved tasks with exact steps.
 
-Cold start: `docs/긴급/세션인계.md` (09-04 — deployment facts and SSH/compose commands still valid; its "remaining 3→4→5" is stale) → `docs/반영계획_2026-09-01.md`.
+1. **Done 2026-09-12:** landing page published (`596c5c8`·`9a2ff53`, server ff-only, no rebuild); draft moved to `archive/`.
+2. **Done 2026-09-12:** Streamlit four fixes (`6a147ff`·`9090651`·`a49097a`·`e265094`), `ui` rebuilt only. Open: 「gpt-4o-mini」 still wraps at its hyphen — a normal break opportunity `keep-all` does not govern.
+3. **`/verify` done 2026-09-12 → 조건부 완료.** User decides: `G3` exception, #88 deletions. Then `/build` #85 · #84 (prod change needs approval) · `/compact` #86 · publication check + scan for #87.
+4. **Tomorrow:** `#55` progress indicator → video → add the video to the landing page only once it exists.
+5. **Deferred past submission:** `/debug` #18·#25 · `/design` #70 · #78 · #59 · `core.py` split (#38), dual-parser UI wiring, internal mTLS, dependency lock — each with a reopen condition. No Vue rewrite (09-01 conditions unmet; an SPA would expose the API).
 
 ## Halt Reason
 
 **Halted: no.** `docs/긴급/미결이슈.md` is superseded and kept as history.
 
-## Machine State (2026-09-11, MacBook)
+## Machine State (2026-09-12, MacBook)
 
-`PGPORT=5433 pytest` → **151 passed / 0 skipped**, judged by exit code (the terminal summary line does not print) · `gate --commit` COMMIT READY (G3 info · WARN 11 · X2 semgrep 0 · X3 pip-audit 0 — both installed via brew 2026-09-11) · `S3`·`S4` 0 · load 547/532/535 req/s, p95 24/165/268 ms at c=10/50/100 (`5257504`, clean hash; ±14% run to run).
+`PGPORT=5433 pytest` → **153 collected on 2026-09-12 (recounted, token test included)** (the summary line does not print: judge by exit code, count with a collection hook) · `gate --commit` COMMIT READY (G3 info · WARN 11 · X2 semgrep 0 · X3 pip-audit 0 — both installed via brew 2026-09-11) · `S3`·`S4` 0 · load 547/532/535 req/s, p95 24/165/268 ms at c=10/50/100 (`5257504`, clean hash; ±14% run to run).
 **The MacBook needs `PGPORT=5433`** (Homebrew Postgres moved off 5432; non-interactive shells never read `~/.zshrc`, so the 41 DB tests skip silently). Python with deps: `/opt/homebrew/opt/python@3.11/bin/python3.11`.
 **Windows desktop:** no docker, no `~/.ssh/loan-demo.pem`; run the gate as `PYTHONUTF8=1 python tools/gate.py .` (cp949 console).
 **Personal notes live outside ROOT** (`~/Documents/portfolio/`) — gate `L1` walks all of ROOT regardless of `.gitignore` (#73).
