@@ -65,7 +65,8 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…034)**
 
 ## Open Labels (blocks completion)
 
-Ledger runs to **#81**. Last full count: **14 open through #69 (2026-09-04)** — not recounted since. Added 2026-09-11: **#70 partly open** (the worker path cannot carry the correlation ID — `explanation_run` has no column and the data model is frozen, so it needs `/design`; uvicorn's own startup/error logs are still plain text) · **#75 pending** (load result files carry a `-dirty` hash — re-measure after commit). Closed 2026-09-11: #71·#72·#73·#74·#76·#77·#80·#81. **Open, pre-existing, found in the security review:** #78 (`parsing-preview` lets LLM-parser failures become an unhandled 500 whose message is logged — the worker logs only a run ID) · #79 (parser agent `verbose=True` may print raw free text, forbidden ③ — not yet confirmed by running it).
+Ledger runs to **#81**. Last full count: **14 open through #69 (2026-09-04)** — not recounted since. Added 2026-09-11: **#70 partly open** (the worker path cannot carry the correlation ID — `explanation_run` has no column and the data model is frozen, so it needs `/design`; uvicorn's own startup/error logs are still plain text) · #75 closed 2026-09-12 (clean-hash runs at `f80e50f` and `5257504`; same request-path code swung ~14% run to run on the shared MacBook). Closed 2026-09-11: #71·#72·#73·#74·#76·#77·#80·#81. **Open, pre-existing, found in the security review:** #78 (`parsing-preview` lets LLM-parser failures become an unhandled 500 whose message is logged — the worker logs only a run ID). **#79 closed 2026-09-12** (`5257504`): the parser agent's `verbose=True` printed raw free text to stdout — confirmed by an egress-blocked run, turned off, locked by `tests/test_llm_verbose.py`.
+**Deferred past submission, with reasons:** #18·#25·#70 (worker path — prod runs no worker) · #78 (the API is not exposed publicly and the UI uses the rule parser) · #59 (not reproducible with normal input).
 
 ## Open Feedback (ledger in `PROJECT_LOG.md`)
 
@@ -77,7 +78,7 @@ Ledger runs to **#81**. Last full count: **14 open through #69 (2026-09-04)** �
 ## Next Action
 
 1. **Finish the 2026-09-11 checkpoint:** gate is `COMMIT READY` with X2/X3 actually run and both reviews spent → feature-split commits, harness sync first. `docs/랜딩_수정안_2026-09-04.md` is a working file — never commit it; move it to `archive/` once the landing HTML exists.
-2. **Re-measure load after the commit** so `tests/load/results/` carries a clean hash (#75).
+2. **Push** the local commits (GitHub still shows the old README until then) — user go-ahead.
 3. **Redeploy to EC2** to ship #70–#76 — a production change, needs approval (⑨). Procedure: `docs/배포절차.md`.
 4. **Plan stage 5** (`docs/반영계획_2026-09-01.md` §3): landing page from the working draft + video; `#55` (no progress indicator) goes first.
 5. **`/debug` on #18·#25** — symptom known, cause not.
@@ -92,7 +93,7 @@ Cold start: `docs/긴급/세션인계.md` (09-04 — deployment facts and SSH/co
 
 ## Machine State (2026-09-11, MacBook)
 
-`PGPORT=5433 pytest` → **151 passed / 0 skipped**, judged by exit code (the terminal summary line does not print) · `gate --commit` COMMIT READY (G3 info · WARN 11 · X2 semgrep 0 · X3 pip-audit 0 — both installed via brew 2026-09-11) · `S3`·`S4` 0 · load 533/531/558 req/s, p95 25/170/248 ms at c=10/50/100 (`tests/load/results/`).
+`PGPORT=5433 pytest` → **151 passed / 0 skipped**, judged by exit code (the terminal summary line does not print) · `gate --commit` COMMIT READY (G3 info · WARN 11 · X2 semgrep 0 · X3 pip-audit 0 — both installed via brew 2026-09-11) · `S3`·`S4` 0 · load 547/532/535 req/s, p95 24/165/268 ms at c=10/50/100 (`5257504`, clean hash; ±14% run to run).
 **The MacBook needs `PGPORT=5433`** (Homebrew Postgres moved off 5432; non-interactive shells never read `~/.zshrc`, so the 41 DB tests skip silently). Python with deps: `/opt/homebrew/opt/python@3.11/bin/python3.11`.
 **Windows desktop:** no docker, no `~/.ssh/loan-demo.pem`; run the gate as `PYTHONUTF8=1 python tools/gate.py .` (cp949 console).
 **Personal notes live outside ROOT** (`~/Documents/portfolio/`) — gate `L1` walks all of ROOT regardless of `.gitignore` (#73).
