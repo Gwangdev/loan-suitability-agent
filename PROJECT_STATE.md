@@ -84,7 +84,7 @@ Ledger runs to **#83**. Last full count: **14 open through #69 (2026-09-04)** �
 2. **Done 2026-09-12:** Streamlit four fixes (`6a147ff`·`9090651`·`a49097a`·`e265094`), `ui` rebuilt only. Open: 「gpt-4o-mini」 still wraps at its hyphen — a normal break opportunity `keep-all` does not govern.
 3. **`/verify` done 2026-09-12 → 조건부 완료.** `G3` → permanent exception (user, 2026-09-12). User decides #88 deletions. `/build` #85 (in progress 2026-09-12) · #84 (prod change needs approval) · `/compact` #86 · publication check + scan for #87.
 4. **Tomorrow:** `#55` progress indicator → video → add the video to the landing page only once it exists.
-5. **Deferred past submission:** `/debug` #18·#25 · `/design` #70 · #78 · #59 · `core.py` split (#38), dual-parser UI wiring, internal mTLS, dependency lock — each with a reopen condition. No Vue rewrite (09-01 conditions unmet; an SPA would expose the API).
+5. **Deferred past submission:** `/debug` #18·#25 · `/design` #70 · #78 · #59 · `core.py` split (#38), dual-parser UI wiring, internal mTLS, dependency lock — each with a reopen condition. **Vue rewrite: after link submission (user decision 2026-09-12, reverses the 09-12 「no rewrite」).** In place on the same URLs so late reviewers see it: `/design` first (expose the API via Caddy `/api`, move the per-session run cap and cooldown to the server, #78) · blue/green cutover with instant rollback · landing/README text that names Streamlit updated in the same release · `index.html` served no-cache.
 
 ## Halt Reason
 
