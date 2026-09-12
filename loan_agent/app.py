@@ -525,7 +525,7 @@ def main():
     st.markdown("<div class='hero-title'>🏦 대출 상담 의사결정 지원</div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='hero-lead'>상담 내용은 <b>규칙 기반 파서</b>가 항목으로 옮기고, "
-        "적격 판정과 DSR은 <b>결정적 함수</b>가 계산합니다. "
+        "적격 판정과 DSR은 <b>코어 함수</b>가 계산합니다. "
         "LLM은 <b>확정된 결과를 설명하는 안내문</b>만 씁니다 — 판정·추천·DSR 값에는 닿지 않습니다.</div>",
         unsafe_allow_html=True,
     )
