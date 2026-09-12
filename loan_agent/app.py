@@ -610,7 +610,16 @@ def main():
 
         customer = _form_customer()
         missing = core.missing_required_fields(customer)
-        if missing:
+        # 아무것도 넣지 않은 첫 화면은 틀린 입력이 아니라 아직 시작하지 않은 상태다. 거기에
+        # 오류 상자를 띄우면 방문자가 무언가 잘못한 것처럼 읽히고, 데모 결과를 띄워도 위에
+        # 남는다. 처음 상태는 누락 목록으로 가를 수 없다 — 폼의 부채 칸은 비워도 0이라
+        # 누락으로 잡히지 않으므로, 네 입력칸이 모두 기본값인지로 본다. 실행 차단(blocked)은
+        # 누락 목록 그대로 따른다.
+        untouched = not any(st.session_state.get(k) for k in ("f_income", "f_debt", "f_grade", "f_amount"))
+        if missing and untouched:
+            st.caption("필수 항목(" + ", ".join(label for label, _ in core.REQUIRED_FIELDS.values())
+                       + ")을 채우면 심사를 실행할 수 있습니다.")
+        elif missing:
             st.error("보완이 필요한 항목: " + ", ".join(f"**{m}**" for m in missing)
                      + " — 자유 서술로 채우거나 위 항목을 직접 입력하세요.")
 
