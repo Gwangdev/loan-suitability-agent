@@ -27,14 +27,13 @@ import argparse
 import asyncio
 import datetime
 import json
-import os
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from loan_agent import core  # noqa: E402
+from loan_agent import core, settings  # noqa: E402
 
 FIXTURE_PATH = ROOT / "loan_agent" / "demo_fixtures.json"
 
@@ -166,7 +165,7 @@ def main() -> int:
                     help="LLM을 부르지 않는다. 결정적 부분만 만들어 형상을 확인한다.")
     args = ap.parse_args()
 
-    api_key = None if args.dry_run else os.getenv("OPENAI_API_KEY")
+    api_key = None if args.dry_run else settings.read("OPENAI_API_KEY")
     if not args.dry_run and not api_key:
         print("OPENAI_API_KEY가 없다. 오너 키로 실행하거나 --dry-run을 쓴다.", file=sys.stderr)
         return 1

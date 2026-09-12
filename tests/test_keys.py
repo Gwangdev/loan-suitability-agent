@@ -5,11 +5,14 @@ os.environ을 오염시키지 않아야 한다(공유 프로세스 키 누출 �
 """
 import pytest
 
-from loan_agent import core, llm
+from loan_agent import core, llm, settings
 
 
-def test_get_llm_without_key_raises(monkeypatch):
+def test_get_llm_without_key_raises(monkeypatch, tmp_path):
+    # 설정은 환경변수가 없으면 .env를 읽는다. 개발 머신의 .env에 키가 있으면 「키 없음」을
+    # 만들 수 없으므로 존재하지 않는 파일을 가리키게 한다.
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(settings, "DOTENV_PATH", tmp_path / "absent.env")
     with pytest.raises(ValueError):
         llm.get_llm()  # crewai import 전에 키 검증 → 무거운 의존성 없이도 ValueError
 
@@ -23,13 +26,6 @@ def test_visitor_key_not_written_to_environ(monkeypatch):
     except Exception:
         pass  # crewai 유무·키 유효성과 무관 — 관심사는 environ 오염 여부뿐
     assert "OPENAI_API_KEY" not in __import__("os").environ
-
-
-def test_has_api_key_reflects_env(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
-    assert llm.has_api_key() is True
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    assert llm.has_api_key() is False
 
 
 def test_every_module_resolves_its_own_names():

@@ -14,9 +14,9 @@ Agent·Task를 캐시하지 않는다. 방문자마다 키가 다르므로 공�
 생긴다. 키는 인자로만 흐르고 `os.environ`에 쓰지 않는다(금지 자동화 행위 7).
 """
 import json
-import os
 import re
 
+from loan_agent import settings
 from loan_agent.core import DISCLAIMER
 
 
@@ -28,11 +28,11 @@ from loan_agent.core import DISCLAIMER
 def get_llm(api_key: str = None):
     """LLM 인스턴스를 생성한다.
     api_key를 명시적으로 받으면 그 키를 쓰고(공개 배포에서 방문자별 키),
-    없으면 환경변수(OPENAI_API_KEY)로 폴백한다. 방문자 키를 os.environ에 저장하지 않고
+    없으면 설정의 OPENAI_API_KEY(환경변수, 없으면 .env)로 폴백한다. 방문자 키를 os.environ에 저장하지 않고
     이렇게 인자로만 넘기는 이유: Streamlit Cloud처럼 여러 방문자가 한 프로세스를 공유할 때
     한 사람의 키가 os.environ을 통해 다른 사람 요청에 새는 것을 막기 위함이다."""
     # 키 검증을 crewai import보다 먼저 — 키가 없으면 무거운 의존성 없이도 즉시 명확한 오류.
-    key = api_key or os.getenv("OPENAI_API_KEY")
+    key = api_key or settings.read("OPENAI_API_KEY")
     if not key:
         raise ValueError(
             "OPENAI_API_KEY를 찾을 수 없습니다. .env에 설정하거나(로컬), "
@@ -40,7 +40,7 @@ def get_llm(api_key: str = None):
         )
     from crewai import LLM
 
-    model_name = os.getenv("OPENAI_MODEL_NAME", "openai/gpt-4o-mini")
+    model_name = settings.read("OPENAI_MODEL_NAME", "openai/gpt-4o-mini")
     return LLM(model=model_name, api_key=key, temperature=0.2), model_name
 
 
@@ -142,11 +142,7 @@ async def generate_guidance(decision_context: dict, *, api_key: str | None = Non
 
 def get_model_name() -> str:
     """현재 .env에 설정된 모델명(키 유무와 무관하게 조회만, 오류 없음)."""
-    return os.getenv("OPENAI_MODEL_NAME", "openai/gpt-4o-mini")
+    return settings.read("OPENAI_MODEL_NAME", "openai/gpt-4o-mini")
 
 
-def has_api_key() -> bool:
-    return bool(os.getenv("OPENAI_API_KEY"))
-
-
-__all__ = ['get_llm', 'build_parser_agent', 'parse_with_llm', 'generate_guidance', 'get_model_name', 'has_api_key']
+__all__ = ['get_llm', 'build_parser_agent', 'parse_with_llm', 'generate_guidance', 'get_model_name']

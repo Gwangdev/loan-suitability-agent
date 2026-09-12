@@ -10,12 +10,9 @@ lookup_product)은 이 모듈을 import하는 순간 바로 쓸 수 있어야 �
 지연 생성한다 — import만으로 키 오류가 나면 안 되기 때문이다(노트북 self-test는
 키 없이 동작해야 함).
 """
-import os
 import re
 import json
 from pathlib import Path
-
-from dotenv import load_dotenv
 
 # 이 파일(core.py)의 상위 폴더가 프로젝트 루트(CSV·.env 위치). cwd에 의존하지 않는다.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,8 +20,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 #   저장소를 공개했을 때 파일명 인코딩 문제를 피하고 국제적으로 통용되도록 함.
 #   (CSV의 컬럼/내용은 한글 그대로 유지 — 도메인 데이터이므로.)
 CSV_PATH = BASE_DIR / "loan_products.csv"
-
-load_dotenv(BASE_DIR / ".env", override=True)
 
 # 교육용 디스클레이머(모든 안내문에 필수 포함 — 규제 통제)
 DISCLAIMER = (
