@@ -6,22 +6,476 @@
 <!-- 검색엔진 색인을 막는다. 지원처에 링크로 전달하는 페이지이고, 공개 색인은
      의도한 배포 경로가 아니다. -->
 <meta name="robots" content="noindex">
+<meta name="description" content="LLM이 잘하는 일과 잘 못하는 일을 구분해 판정은 코드가, 설명은 LLM이 맡도록 설계한 대출 상담 의사결정 지원 데모.">
 <title>원광식 — 대출 상담 의사결정 지원</title>
 <style>
-  :root { color-scheme: light dark; }
-  body {
-    margin: 0 auto; padding: 3rem 1.25rem; max-width: 42rem;
-    font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI",
-          "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  /* 토큰 값은 데모 화면(loan_agent/static/apple.css)의 :root에서 옮겨 왔다. 두 화면이
+     같은 체계로 읽혀야 하므로 값을 새로 정하지 않는다. 이 페이지는 Caddy가 앱과 따로
+     서빙해 그 CSS 파일을 불러올 수 없으므로 값을 복사하고, 어긋나지 않게
+     tests/test_site_tokens.py가 두 값을 대조한다. 이 페이지에만 있는 값은 --site- 접두어를 쓴다. */
+  :root {
+    --color-primary: #0066cc;
+    --color-primary-wash: #eef5fd;
+    --color-ink: #1d1d1f;
+    --color-ink-muted-80: #333333;
+    --color-ink-muted-48: #7a7a7a;
+    --color-canvas: #ffffff;
+    --color-parchment: #f5f5f7;
+    --color-hairline: #e0e0e0;
+    --color-divider-soft: #f0f0f0;
+    --color-verdict-eligible: #1f7a4d;
+    --color-caution-bg: #fff8e6;
+    --color-caution-border: #f0d9a0;
+    --color-caution-ink: #6b4e12;
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+    --space-8: 64px;
+
+    --text-sm: 12.5px;
+    --text-base: 14px;
+    --text-md: 15px;
+    --text-lg: 17px;
+    --text-xl: 21px;
+    --text-2xl: 28px;
+    --text-3xl: 38px;
+    --leading-tight: 1.22;
+    --leading-snug: 1.4;
+    --leading-normal: 1.6;
+    --tracking-tight: -0.028em;
+    --tracking-normal: -0.01em;
+    --tracking-wide: 0.06em;
+
+    --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", system-ui, sans-serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+    --font-numeric: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+    --radius-sm: 8px;
+    --radius-md: 11px;
+    --radius-lg: 18px;
+    --radius-pill: 9999px;
+
+    --elevation-card: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 24px rgba(0, 0, 0, .045);
+
+    /* 본문은 한국어라 시스템 한글 글꼴을 앞 토큰 뒤에 붙인다. 앱은 Streamlit이 글꼴을
+       정하므로 이 값이 필요 없다. */
+    --site-font-korean: "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+    --site-measure: 760px;
+    --site-reading: 17px;
   }
-  h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
-  p { margin: 0 0 1rem; }
-  a { color: inherit; }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: light; -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-body), var(--site-font-korean);
+    font-size: var(--site-reading);
+    line-height: 1.75;
+    letter-spacing: var(--tracking-normal);
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+  a { color: var(--color-primary); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: var(--font-numeric);
+    font-size: .88em;
+    background: var(--color-parchment);
+    border-radius: 6px;
+    padding: 1px 6px;
+  }
+  strong { font-weight: 650; }
+
+  .wrap { max-width: var(--site-measure); margin: 0 auto; padding: 0 var(--space-5); }
+
+  /* ── 히어로 ─────────────────────────────────────────── */
+  .hero {
+    background: var(--color-parchment);
+    border-bottom: 1px solid var(--color-divider-soft);
+    padding: var(--space-8) 0 var(--space-7);
+  }
+  .eyebrow {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--color-ink-muted-48);
+    margin: 0 0 var(--space-3);
+  }
+  h1 {
+    font-family: var(--font-display), var(--site-font-korean);
+    font-size: var(--text-3xl);
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-tight);
+    margin: 0 0 var(--space-5);
+  }
+  .lead {
+    font-size: var(--text-xl);
+    line-height: var(--leading-snug);
+    font-weight: 600;
+    letter-spacing: var(--tracking-tight);
+    margin: 0 0 var(--space-4);
+  }
+  .hero p { margin: 0 0 var(--space-4); color: var(--color-ink-muted-80); }
+  .actions { display: flex; flex-wrap: wrap; gap: var(--space-3); margin: var(--space-5) 0; }
+  .btn {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    padding: 10px 20px;
+    border-radius: var(--radius-pill);
+    font-size: var(--text-md);
+    font-weight: 600;
+    border: 1px solid var(--color-primary);
+  }
+  .btn:hover { text-decoration: none; }
+  .btn-primary { background: var(--color-primary); color: #fff; }
+  .btn-secondary { background: var(--color-canvas); color: var(--color-primary); }
+  .note {
+    background: var(--color-caution-bg);
+    border: 1px solid var(--color-caution-border);
+    color: var(--color-caution-ink);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-base);
+    line-height: var(--leading-normal);
+    margin: 0;
+  }
+
+  /* ── 목차 ───────────────────────────────────────────── */
+  .toc { border-bottom: 1px solid var(--color-divider-soft); }
+  .toc ol {
+    list-style: none; margin: 0; padding: var(--space-4) 0;
+    display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4);
+    font-size: var(--text-base);
+  }
+  .toc a { color: var(--color-ink-muted-80); }
+
+  /* ── 본문 절 ────────────────────────────────────────── */
+  section { padding: var(--space-7) 0 var(--space-4); }
+  section + section { border-top: 1px solid var(--color-divider-soft); }
+  h2 {
+    font-family: var(--font-display), var(--site-font-korean);
+    font-size: var(--text-2xl);
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-tight);
+    margin: 0 0 var(--space-5);
+  }
+  h2 .num { color: var(--color-primary); margin-right: var(--space-2); }
+  h3 {
+    font-size: var(--text-lg);
+    line-height: var(--leading-snug);
+    margin: var(--space-6) 0 var(--space-3);
+  }
+  p { margin: 0 0 var(--space-4); }
+  .emphasis {
+    font-weight: 600;
+    border-left: 3px solid var(--color-primary);
+    padding: var(--space-1) 0 var(--space-1) var(--space-4);
+    margin: var(--space-5) 0;
+  }
+  ul { margin: 0 0 var(--space-4); padding-left: 1.2em; }
+  li { margin-bottom: var(--space-2); }
+
+  /* 표는 좁은 화면에서 본문을 밀어내지 않고 제 안에서 가로로 스크롤한다. */
+  .table-wrap {
+    overflow-x: auto;
+    margin: var(--space-4) 0 var(--space-5);
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--radius-md);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: var(--text-md); line-height: var(--leading-snug); }
+  th, td { text-align: left; vertical-align: top; padding: var(--space-3) var(--space-4); }
+  th {
+    background: var(--color-parchment);
+    font-size: var(--text-base);
+    font-weight: 600;
+    color: var(--color-ink-muted-80);
+    white-space: nowrap;
+  }
+  tr + tr td { border-top: 1px solid var(--color-divider-soft); }
+  td.num, th.num { font-family: var(--font-numeric); }
+  /* 본문의 anywhere 줄바꿈은 긴 주소가 화면을 밀어내지 않게 하려는 것이다. 표 칸에서는 그 규칙이
+     좁은 열의 단어(「인젝션」)와 금액(「2,000,000」)을 중간에서 자르므로, 표 안에서는 단어 단위로
+     되돌리고 숫자는 한 줄로 둔다. 표는 제 영역 안에서 가로로 스크롤한다. */
+  table { overflow-wrap: normal; word-break: keep-all; }
+  td.num { white-space: nowrap; }
+  .table-wrap.wide table { min-width: 640px; }
+
+  /* ── LLM 경계 흐름도 ─────────────────────────────────── */
+  .flow { list-style: none; margin: var(--space-5) 0; padding: 0; }
+  .flow > li { margin: 0; }
+  .flow > li + li::before {
+    content: "↓";
+    display: block;
+    text-align: center;
+    color: var(--color-ink-muted-48);
+    margin: var(--space-2) 0;
+  }
+  .step {
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--radius-md);
+    background: var(--color-canvas);
+    box-shadow: var(--elevation-card);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-md);
+    line-height: var(--leading-snug);
+  }
+  .step .title { font-weight: 650; display: block; }
+  .step .desc { color: var(--color-ink-muted-80); font-size: var(--text-base); }
+  .step .tag {
+    float: right;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    border-radius: var(--radius-pill);
+    padding: 1px 10px;
+    margin-left: var(--space-2);
+  }
+  .step.llm { border-color: var(--color-caution-border); background: var(--color-caution-bg); }
+  .step.llm .tag { background: var(--color-caution-border); color: var(--color-caution-ink); }
+  .step.core { border-color: var(--color-primary); background: var(--color-primary-wash); }
+  .step.core .tag { background: var(--color-primary); color: #fff; }
+  .step.human .tag { background: var(--color-parchment); color: var(--color-ink-muted-80); }
+  .branch { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+  .legend { font-size: var(--text-base); color: var(--color-ink-muted-80); }
+
+  /* ── 사례 카드 ──────────────────────────────────────── */
+  .case {
+    background: var(--color-parchment);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+    margin: var(--space-5) 0;
+  }
+  .case h3 { margin-top: 0; }
+  .case .table-wrap { background: var(--color-canvas); }
+
+  /* ── 푸터 ───────────────────────────────────────────── */
+  footer {
+    background: var(--color-parchment);
+    border-top: 1px solid var(--color-divider-soft);
+    padding: var(--space-7) 0 var(--space-8);
+    margin-top: var(--space-6);
+  }
+  footer .links { display: grid; gap: var(--space-3); margin: 0 0 var(--space-5); }
+  footer .links div { font-size: var(--text-md); }
+  footer .links span { display: block; font-size: var(--text-base); color: var(--color-ink-muted-80); }
+  .author { font-size: var(--text-base); color: var(--color-ink-muted-48); margin: 0; }
+
+  @media (max-width: 640px) {
+    body { font-size: 16px; }
+    .hero { padding: var(--space-7) 0 var(--space-6); }
+    h1 { font-size: 30px; }
+    .lead { font-size: var(--text-lg); }
+    h2 { font-size: 23px; }
+    section { padding: var(--space-6) 0 var(--space-3); }
+    .branch { grid-template-columns: 1fr; }
+    .step .tag { float: none; display: inline-block; margin: 0 0 var(--space-1); }
+    .case { padding: var(--space-4); border-radius: var(--radius-md); }
+  }
 </style>
 </head>
 <body>
-  <h1>대출 상담 의사결정 지원</h1>
-  <p>이 페이지는 자리표시자다. 내용은 <code>/handoff</code> 산출물로 별도 작성한다.</p>
-  <p>라이브 데모: <a href="https://loan.gwang.dev">loan.gwang.dev</a></p>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">포트폴리오 · 원광식</p>
+    <h1>대출 상담 의사결정 지원</h1>
+    <p class="lead">LLM이 잘 하는 일과, 잘 못 하는 일을 구분하여 금융 서비스의 신뢰성을 확보했습니다.</p>
+    <p>적합성 판정과 DSR 계산은 규칙 기반의 코어 함수가 계산하도록 설계했습니다. LLM은 처음 고객의 요청을 받고, 확정된 결과를 고객에게 전달하는 일만 합니다. 같은 정보가 들어오면 언제나 같은 판정이 나오고, LLM이 잘못 답해도 승인가능·상담필요·어려움 판정은 바뀌지 않도록 만들었습니다.</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="https://loan.gwang.dev">라이브 데모 →</a>
+      <a class="btn btn-secondary" href="https://github.com/Gwangdev/loan-suitability-agent">저장소 →</a>
+    </div>
+    <p class="note">합성 데이터로 동작하는 교육용 데모입니다. 실제 대출 심사를 고려할 시 법규 검토를 위한 RAG, 고객데이터 연결 등의 추가 확장이 필요합니다.</p>
+  </div>
+</header>
+
+<nav class="toc" aria-label="목차">
+  <div class="wrap">
+    <ol>
+      <li><a href="#why">1. 왜 이렇게 만들었는가</a></li>
+      <li><a href="#llm">2. LLM은 어디서 작동하는가</a></li>
+      <li><a href="#evidence">3. 실제로 작동하는가</a></li>
+      <li><a href="#quality">4. 코드 품질</a></li>
+      <li><a href="#limits">5. 한계</a></li>
+      <li><a href="#regulation">6. 규제</a></li>
+      <li><a href="#built">7. 만든 것</a></li>
+    </ol>
+  </div>
+</nav>
+
+<main class="wrap">
+
+<section id="why">
+  <h2><span class="num">1</span>왜 이렇게 만들었는가</h2>
+  <p>금융분야에서 AI를 쓸 때 가장 중요한 과제는 「AI를 활용하면서 어떻게 신뢰도를 확보할 수 있는가」라고 생각합니다. 저는 그 질문을 기존의 안정적인 개발기술과 융합하여 답하고자 했습니다.</p>
+  <p class="emphasis">AI의 장점을 극대화하면서 동시에 단점을 최소화 할 수 있게 서비스의 범위를 조절하고, 기존의 신뢰 가능한 기술을 활용하여 리스크를 최소화했습니다.</p>
+  <p>AI시대에 걸맞는 스마트 금융 서비스를 개발하려면 결국 AI의 편의성을 필두로 하는 생산성 향상 효과는 차용하되, 리스크를 다룰 줄 아는 개발자가 될 필요성을 느꼈습니다.</p>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>대상</th><th>개선에만 의존하지 않은 것</th><th>범위 조절</th><th>그 자리를 맡은 기술</th></tr></thead>
+      <tbody>
+        <tr><td><strong>판정</strong></td><td>LLM 정확도 튜닝</td><td>LLM은 고객대응만</td><td><code>screen_loan</code> 코어 함수</td></tr>
+        <tr><td><strong>파싱</strong></td><td>LLM 파싱 신뢰도</td><td>LLM 파싱을 후보군으로 한정</td><td>사람이 확정하는 폼 (+ 두 파서 후보를 대조하는 API)</td></tr>
+        <tr><td><strong>인젝션</strong></td><td>입력 필터 강화</td><td>판정 로직을 LLM과 분리</td><td>공격 표면 자체를 제거</td></tr>
+        <tr><td><strong>수치</strong></td><td>환각 억제 프롬프트</td><td>리스크가 없는 단순 설명문으로 한정, 수치는 배제</td><td>확정값 주입 + Eval 수치근거 지표</td></tr>
+        <tr><td><strong>품질</strong></td><td>프롬프트 튜닝 반복</td><td>정량평가 진행</td><td>Eval 하네스 + 결함 주입 역검증</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>이 서비스를 설계하면서 가장 중요하게 생각했던 부분은 LLM이 가지고 있는 장단점을 명확하게 구분하여 적재적소에 도입하는 것이었습니다. LLM의 범위 조절 및 리스크관리가 중요한 부분에서는 함수 로직을 사용하도록 설계하여 문제를 풀어냈습니다.</p>
+</section>
+
+<section id="llm">
+  <h2><span class="num">2</span>LLM 기능은 어디서 작동하는가</h2>
+  <ol class="flow" aria-label="요청 처리 흐름">
+    <li><div class="step human"><span class="tag">사람</span><span class="title">자연어 입력</span></div></li>
+    <li>
+      <div class="branch">
+        <div class="step llm"><span class="tag">LLM</span><span class="title">[API] parsing-preview</span><span class="desc">규칙 파서 · LLM 파서를 나란히 실행 → 두 후보와 불일치 필드를 그대로 응답 (이 단계에서는 어느 쪽도 채택하지 않음)</span></div>
+        <div class="step human"><span class="tag">사람</span><span class="title">[데모 화면]</span><span class="desc">규칙 파서가 폼을 채움 → 사람이 확인·수정</span></div>
+      </div>
+    </li>
+    <li><div class="step human"><span class="tag">사람</span><span class="title">확정된 폼 값</span><span class="desc">심사에 들어가는 유일한 값</span></div></li>
+    <li><div class="step core"><span class="tag">코어 함수</span><span class="title"><code>screen_loan()</code></span><span class="desc">LLM 미개입 · 판정 · DSR · 추천</span></div></li>
+    <li><div class="step llm"><span class="tag">LLM</span><span class="title">LLM 안내문 생성</span><span class="desc">확정값을 데이터로 주입</span></div></li>
+    <li><div class="step core"><span class="tag">코드 검증</span><span class="title">Eval 6지표 통과분만 공개</span></div></li>
+  </ol>
+  <p>LLM이 닿는 곳은 <strong>입구(파싱 후보)와 출구(안내문)</strong> 두 군데로, 정확한 판단이 필요한 핵심 로직에서는 일부러 배제했습니다.</p>
+</section>
+
+<section id="evidence">
+  <h2><span class="num">3</span>이 설계가 실제로 작동하는가</h2>
+  <p>개발 과정에서 실제로 <strong>두 개의 파서 대조를 통해서 오류를 탐지</strong>할 수 있었습니다.</p>
+
+  <div class="case">
+    <h3>사례 1 — LLM 파서가 「부채 200만원」을 20만원으로 전달</h3>
+    <p>기능 테스트를 위해 API키로 파이프라인을 돌리다가 발견한 상황입니다.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th class="num">부채</th><th class="num">희망금액</th></tr></thead>
+        <tbody>
+          <tr><td>입력값</td><td class="num">200만원</td><td class="num">500만원</td></tr>
+          <tr><td>LLM 파서</td><td class="num">200,000</td><td class="num">500,000</td></tr>
+          <tr><td>규칙 파서</td><td class="num">2,000,000</td><td class="num">5,000,000</td></tr>
+          <tr><td>확정</td><td><strong>규칙 파서 값</strong></td><td><strong>규칙 파서 값</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>단순 LLM 파서만 사용할 경우 10배나 차이나는 금액을 기준으로 심사가 진행될 수도 있다는 것을 확인할 수 있었습니다.</p>
+  </div>
+
+  <div class="case">
+    <h3>사례 2 — 규칙 파서가 「3,000,000」을 300억으로 잘못 읽음</h3>
+    <p>배포 후 추가 테스트 과정에서 발견한 사항인데, 일반적으로 유저들이 단위를 생략하는 경우가 많다보니(「월급 700」 = 700만원) 단위 미기재 시 만원으로 보도록 설계했었습니다.</p>
+    <p>그러다 보니 금액 전부를 작성하는 유저들에 대해서 오류가 발생하게 됐고, 이를 고치기 위해서 로직을 변경하여 일반적으로 발생할 수 있는 금액의 범위를 조정했습니다.</p>
+    <p>예를 들어 콤마의 개수를 확인, 하나면 만원 표기에서 흔한 자리수이므로 만원 관행을 따르고, 둘 이상이면 만원으로 읽을 경우 백억을 넘어가기 때문에 일반적이지 않다고 판단, 단위를 원으로 받도록 변경했습니다. 추가로 열여섯 가지 표기를 회귀 테스트로 고정했습니다.</p>
+    <p>그래도 예외적으로 발생할 수 있는 부분들이 있다고 판단하여 최소한의 안전장치를 추가했습니다. 「500,000」은 콤마가 하나라 만원 관행이 적용되어 50억으로 파싱되는데, 실제로는 50만원을 적은 사용자일 수도 있습니다. 어떤 표기 규칙도 이 구간을 양쪽 모두 맞출 수는 없다고 판단, 규칙을 더 얹어 덮는 대신 실행 전에 <strong>금액을 확인했다는 체크를 사람이 직접</strong> 하게 하고 그 한계를 회귀 테스트로 적어 두었습니다.</p>
+  </div>
+</section>
+
+<section id="quality">
+  <h2><span class="num">4</span>코드 품질을 어떻게 담보했는가</h2>
+  <p class="emphasis">코드 결과를 단순히 사람이나 AI가 확인하는 것을 넘어서, 매번 같은 기준의 로직을 통해 품질 일관성을 확보할 수 있도록 설계했습니다.</p>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>무엇이</th><th>어디까지</th><th>무엇을 막는가</th></tr></thead>
+      <tbody>
+        <tr><td>테스트</td><td><strong>153개</strong> (DB 통합 포함)</td><td>고쳤던 결함이 다시 등장하는 것</td></tr>
+        <tr><td>Eval</td><td><strong>90/90</strong> — 15케이스 × 6지표</td><td>안내문이 확정값과 어긋나는 것</td></tr>
+        <tr><td>Eval 역검증</td><td><strong>결함 주입 7종</strong></td><td>채점기가 검증 없이 통과만 시키는 것</td></tr>
+        <tr><td>기계 게이트</td><td><strong>제출 전 자동 차단</strong> — 현재 BLOCK 1 · WARN 11</td><td>명세·코드 괴리, 비밀키 노출, 미사용 표면 존재 여부 등</td></tr>
+        <tr><td>부하 시험</td><td><strong>535 req/s</strong> · 동시 요청 100건 · 실패율 0% · p95 268ms</td><td>부하 상황에서 장애가 발생하는 것</td></tr>
+        <tr><td>ADR</td><td><strong>34건</strong></td><td>기각했던 대안에 대한 아이디어 기록이 소실되는 것</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>각 장치가 실제로 하는 일</h3>
+  <p><strong>Eval 6지표</strong> — 파싱정확도 · 판정정합성 · 추천정합성 · 수치근거 · 조건부표현 · 디스클레이머 6가지 지표로 구성되어 있습니다. LLM의 응답이 고객에게 도달하기 전에 이 지표를 바탕으로 검증, 책임지지 못할 문구가 그대로 전달되지 않도록 개발했습니다. 「수치근거」는 안내문에 나온 모든 숫자가 상품 CSV나 확정 판정값에 실제로 있는지 대조하고, 「조건부표현」은 “승인합니다” 같은 단정적인 표현을 막아냅니다.</p>
+  <p><strong>결함 주입 7종</strong> — 90/90은 채점기가 정상적으로 작동하지 않아서 결함을 잡아내지 못하는 경우에도 나올 수 있는 검증점수입니다. 그래서 지표마다 일부러 틀린 안내문을 넣고 해당 지표를 올바르게 잡아내는지 확인하도록 했습니다. 금리를 CSV에 없는 2.0%로 바꾸면 수치근거 하나만 점수가 떨어져야 하고, 다른 부분도 함께 감점이 발생하면 채점기가 오작동한다는 것을 잡아낼 수 있었습니다.</p>
+  <p><strong>기계 게이트</strong> — 제출 전에 <code>gate.py</code>가 명세와 코드의 차이, 소스에 박힌 비밀키, 정의만 되고 호출되지 않는 함수, 커밋 준비 상태를 봅니다. 통과 도장이 아니라 <strong>차단이 목적</strong>입니다.</p>
+  <p><strong>부하 시험</strong> — 동시 요청 100건을 60초 동안 쉬지 않고 밀어 실패율과 p95를 같이 봅니다. 평균만 보면 꼬리에서 무너지는 것을 놓칩니다.</p>
+
+  <h3>코드만 읽어서는 나오지 않는 결함</h3>
+  <p>위 장치는 전부 코드를 대상으로 검토하도록 만들었습니다. 따라서 코드 자체에는 문제가 없더라도 발생하는 결함들이 따로 있었습니다.</p>
+  <ul>
+    <li>alpine의 postgres는 uid 70인데 데비안 값 999를 적어 둔 것 — 컨테이너가 볼륨을 소유하지 못해 initdb가 멈춥니다. <code>docker compose up</code>을 처음 돌렸을 때 발견, 수정 반영했습니다.</li>
+    <li>이미지에 마이그레이션 파일이 들어가지 않아 스키마를 만들 수단 자체가 없던 것</li>
+    <li>저장소 안의 Caddy 설정·마운트·compose가 전부 옳았는데 <strong>도메인이 DNS에 없어</strong> 인증서가 발급되지 않던 것.</li>
+    <li>CSS 문법이 옳고 테스트도 전부 통과하는데, 알림 컨테이너를 통째로 칠하는 바람에 안내(파랑)까지 경고(노랑)로 보이던 것.</li>
+  </ul>
+</section>
+
+<section id="limits">
+  <h2><span class="num">5</span>구현하지 않은 것과 지금 형태로는 안 되는 것</h2>
+
+  <h3>공개 데모에서 동작하지 않는 것</h3>
+  <ul>
+    <li><strong>안내문 생성의 대기열 처리.</strong> 안내문은 심사와 분리해 대기열에 쌓고 별도 워커가 가져가 처리하도록 만들었습니다. LLM이 느리거나 실패해도 판정 응답이 거기 붙잡히지 않게 하려는 구조입니다. 공개 서버에는 그 워커를 띄우지 않아서, 방문자가 자기 키를 넣으면 요청 안에서 바로 생성됩니다. 대기열 경로는 로컬 실행에서 볼 수 있습니다</li>
+    <li><strong>두 파서 교차검증 화면.</strong> API 엔드포인트로는 존재하지만 화면에 따로 노출시키지는 않았습니다. 화면은 규칙 파서만 쓰도록 설계했습니다.</li>
+    <li><strong>적격 상품 전체 목록.</strong> 현재 코드상에서 실제 심사 경로는 상위 3건만 저장하므로 화면도 3건만 보여주도록 만들었습니다.</li>
+    <li><strong>금액 자리수의 자동 판별.</strong> 「500,000」처럼 표기만으로 만원인지 원인지 명확하게 판단되지 않는 값이 있습니다. 기재 단위를 화면에 고지하고, 실행 전 금액 확인 체크를 사람에게 받는 것으로 보완했습니다.</li>
+  </ul>
+
+  <h3>구조상 지금 형태로는 안 되는 것</h3>
+  <ul>
+    <li><strong>방문자별 요청 상한.</strong> 명세는 클라이언트 주소 기준이라고 적었는데, 브라우저 → 프록시 → 화면 컨테이너 → API 구조에서 API가 보는 주소는 언제나 화면 컨테이너 하나입니다. 방문자를 구분하지 못하고 사실상 인스턴스 전체 상한으로 동작합니다. 넉넉히 잡아 부작용을 줄였고, 한계를 기록해 두었습니다</li>
+    <li><strong>인증·권한.</strong> 데모프로젝트이다 보니 사칭문제에서 비교적 자유로워서 아직 구현하지는 않았고, AI서비스를 기존 금융 서비스에 결합하는 방식에 더 집중했습니다. 실제로 상용되는 서비스로 발전된다면 가장 중요한 요소 중 한가지 이므로 개발이 필요합니다</li>
+  </ul>
+
+  <h3>검토는 했지만 미구현한 것</h3>
+  <ul>
+    <li>내부 구간 mTLS — 지금은 화면·API·DB가 한 호스트 안의 컨테이너라 내부 통신이 도커 네트워크 밖으로 나가지 않기 때문에 단일 노드 데모에 과도하다고 판단했습니다. <code>app</code>을 외부에 노출하거나 화면을 다중화하거나 DB를 별도 인스턴스로 옮기면, 내부 통신이 호스트 경계를 넘게 되며 필수로 바뀌므로 그 때 도입해야 한다고 메모해두었습니다.</li>
+  </ul>
+</section>
+
+<section id="regulation">
+  <h2><span class="num">6</span>금융권에서 중요한 '규제'를 어떻게 다뤘는가</h2>
+  <p class="emphasis">데모 프로젝트이다 보니 규제 대상이 되는 기능을 의도적으로 구현 범위에서 제외하는 방향으로 설계했습니다.</p>
+  <p>데모 프로젝트이다 보니 실제 규제사항을 지켜서 개발할 수 있는 환경이 아니었기 때문에, 애초에 그 조건에 들어가지 않도록 기능의 범위와 책임 경계를 설계했습니다. 대신 규제별로 조건들을 검토하여 추후 만약 실서비스를 다루게 된다면 어떤 사항들을 확인하고 적용해야 하는지 별도로 학습했습니다.</p>
+  <div class="table-wrap wide">
+    <table>
+      <thead><tr><th>조건</th><th>실무에서</th><th>이 데모</th></tr></thead>
+      <tbody>
+        <tr><td>구속력 있는 승인·거절</td><td>개인정보보호법 제37조의2 (자동화된 결정)</td><td>자동으로 승인·거절을 확정하지 않습니다. 사람이 결정하도록 만들었습니다</td></tr>
+        <tr><td>상품 추천·중개</td><td>금융소비자보호법 제17·19조</td><td>실제 금융상품이 아닌 합성 상품표를 사용했습니다</td></tr>
+        <tr><td>실제 개인신용정보</td><td>개인정보보호법 제15·16·21·30조, 신용정보법</td><td>화면에 입력 금지를 고지하고 별도로 받지 않도록 만들었습니다</td></tr>
+        <tr><td>전자금융업</td><td>전자금융거래법 제2조 제1호, 제21조</td><td>운영 주체가 금융회사가 아니고, 자금 이동·결제·계약 체결이 없으며, 상담원이 최종 결정하므로 「종사자와 의사소통 없이 자동화된 방식」에 해당하지 않습니다</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>금융 IT에서 통용된다고 알려진 표준들도 따로 확인해본 결과, 제가 파악한 적용 체계는 전자금융감독규정·ISMS-P·ISO/IEC 27001이었습니다. IEEE 830·1471·829는 이미 ISO/IEC/IEEE 표준으로 대체·폐지된 것으로 파악되고, 이 프로젝트에 실질적으로 걸리는 것은 금액 계산의 IEEE 754였습니다. 인증이나 심사를 받은 것은 아니므로 준수했다고 말하지는 않습니다. 이 체계들의 취지를 기준 삼아 판단했고, 무엇을 기준으로 무엇을 판단했는지를 문서에 남겼습니다.</p>
+  <p>실서비스로 전환한다면 검토할 것: 사용자 인증과 자원 소유권, 마이그레이션·런타임 권한 분리, 개인정보 영향평가, 모델 리스크 관리, 감사 로그 보존기간.</p>
+</section>
+
+<section id="built">
+  <h2><span class="num">7</span>만든 것</h2>
+  <ul>
+    <li><strong>백엔드</strong> FastAPI 모듈러 모놀리스 — 독립 배포와 컴포넌트별 확장이 필요한 규모가 아니라 프로세스는 하나로 두고, 화면·API·DB는 컨테이너와 네트워크로 분리했습니다 · PostgreSQL · Alembic 수동 마이그레이션</li>
+    <li><strong>정합성</strong> 단일 트랜잭션 저장 · Idempotency-Key + 요청해시 + DB UNIQUE 제약 · <code>FOR UPDATE SKIP LOCKED</code></li>
+    <li><strong>재현성</strong> 규칙·상품·모델·프롬프트 4종 버전을 판정 결과에 함께 저장</li>
+    <li><strong>배포</strong> AWS EC2 · Docker Compose 3-tier · Caddy 리버스 프록시가 유일한 외부 진입점 · Let's Encrypt 자동 갱신</li>
+    <li><strong>이 페이지도</strong> 같은 인스턴스에서 Caddy가 직접 서빙합니다. 앱이 죽어도 이 링크는 살아 있도록 컨테이너와 분리했고, 재부팅 후 복구를 실측했습니다. 다만 인스턴스가 한 대라 가용영역 자체가 죽는 장애는 이 구성으로 막지 못합니다</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="links">
+      <div><strong>라이브 데모</strong> <a href="https://loan.gwang.dev">loan.gwang.dev</a><span>키가 없어도 「토큰 없이 데모 보기」로 실제 결과를 볼 수 있습니다</span></div>
+      <div><strong>저장소</strong> <a href="https://github.com/Gwangdev/loan-suitability-agent">github.com/Gwangdev/loan-suitability-agent</a></div>
+    </div>
+    <p class="author">원광식</p>
+  </div>
+</footer>
+
 </body>
 </html>
