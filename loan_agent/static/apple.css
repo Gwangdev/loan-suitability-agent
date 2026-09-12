@@ -4,17 +4,17 @@
 
 :root {
   /* --- 색: 원자 --- */
-  --color-primary: #0066cc;
-  --color-primary-focus: #0071e3;
-  --color-primary-wash: #eef5fd;
-  --color-ink: #1d1d1f;
-  --color-ink-muted-80: #333333;
-  --color-ink-muted-48: #7a7a7a;
+  --color-primary: #0000ff;
+  --color-primary-focus: #3333ff;
+  --color-primary-wash: #eef0ff;
+  --color-ink: #0a0b0d;
+  --color-ink-muted-80: #32353d;
+  --color-ink-muted-48: #717886;
   --color-canvas: #ffffff;
-  --color-parchment: #f5f5f7;
-  --color-pearl: #fafafc;
-  --color-hairline: #e0e0e0;
-  --color-divider-soft: #f0f0f0;
+  --color-parchment: #f7f7f8;
+  --color-pearl: #fbfbfc;
+  --color-hairline: #e6e7ea;
+  --color-divider-soft: #f0f1f3;
 
   /* --- 색: 판정 의미 ---
      세 판정은 도메인 값이고 색은 그 표현이다. 파이썬이 색을 들고 있으면 판정 어휘가
@@ -50,27 +50,31 @@
   --text-lg: 17px;
   --text-xl: 21px;
   --text-2xl: 28px;
-  --text-3xl: 38px;
+  --text-3xl: 44px;
   --leading-tight: 1.22;
   --leading-snug: 1.4;
   --leading-normal: 1.6;
-  --tracking-tight: -0.028em;
+  --tracking-tight: -0.035em;
   --tracking-normal: -0.01em;
   --tracking-wide: 0.06em;
 
+  /* 레퍼런스 사이트의 전용 글꼴은 들이지 않는다. 웹폰트를 외부에서 불러오면 방문자
+     브라우저가 제3자에게 요청을 보내게 되고, 화면 문구는 대부분 한국어라 어차피 시스템
+     한글 글꼴로 그려진다. */
   --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", system-ui, sans-serif;
   --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
   --font-numeric: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 
   --radius-sm: 8px;
-  --radius-md: 11px;
-  --radius-lg: 18px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
   --radius-pill: 9999px;
 
   /* --- 높이감 ---
-     테두리만으로 카드를 세우면 배경과 같은 평면에 머문다. 그림자를 아주 얕게 두면
-     카드가 종이 위에 놓인 것처럼 읽히고, 어디까지가 한 덩어리인지가 분명해진다. */
-  --elevation-card: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 24px rgba(0, 0, 0, .045);
+     카드는 연회색 캔버스 위에 얕은 그림자로 세웠었다. 캔버스를 흰색으로 바꾸면서 그림자는
+     흰 바탕에서 번져 보여, 카드 경계는 가는 테두리가 맡고 그림자는 누를 수 있는 요소가
+     떠오르는 순간(버튼 hover)에만 남긴다. */
+  --elevation-card: none;
   --elevation-raised: 0 2px 6px rgba(0, 0, 0, .06), 0 14px 32px rgba(0, 0, 0, .07);
   --motion-quick: .15s ease;
 }
@@ -102,7 +106,7 @@ html, body, #root,
 [data-testid="stApp"],
 [data-testid="stMain"],
 .stApp {
-  background: var(--color-parchment) !important;
+  background: var(--color-canvas) !important;
 }
 [data-testid="stMainBlockContainer"] {
   max-width: 900px;
@@ -157,6 +161,8 @@ h1, h2, h3 {
   line-height: var(--leading-tight) !important;
 }
 [data-testid="stHeading"] h3, .stMarkdown h3 { font-size: var(--text-xl) !important; }
+/* 첫 화면은 가운데로 모은다. 제목과 요약이 한 축에 서야 아래 입력 카드로 시선이
+   곧게 내려간다. */
 .hero-title {
   font-family: var(--font-display);
   font-weight: 600;
@@ -164,7 +170,8 @@ h1, h2, h3 {
   font-size: var(--text-3xl);
   line-height: var(--leading-tight);
   color: var(--color-ink);
-  margin-bottom: var(--space-2);
+  text-align: center;
+  margin-bottom: var(--space-3);
 }
 .hero-lead {
   font-family: var(--font-body);
@@ -172,9 +179,16 @@ h1, h2, h3 {
   font-size: var(--text-lg);
   line-height: var(--leading-snug);
   color: var(--color-ink-muted-48);
-  margin-bottom: var(--space-6);
-  max-width: 62ch;
+  text-align: center;
+  margin: 0 auto var(--space-7);
+  max-width: 56ch;
 }
+/* 요약 문장에서 역할을 맡는 말(파서·코어 함수·안내문)만 진하게 두고 나머지를 회색으로
+   물린다. 굵기 대신 명도로 강조해 한 문장으로 읽히게 한다. */
+.hero-lead b { color: var(--color-ink); font-weight: 500; }
+/* 가운데 정렬한 두 줄 제목·요약은 줄 끝이 음절 중간에서 끊기면(「계산합니 / 다」) 바로
+   드러난다. 알림 문단에 건 어절 단위 줄바꿈은 이 자체 마크업에 닿지 않으므로 따로 건다. */
+.hero-title, .hero-lead { word-break: keep-all; }
 [data-testid="stCaptionContainer"] {
   color: var(--color-ink-muted-48) !important;
   font-size: var(--text-sm) !important;
@@ -248,9 +262,9 @@ h1, h2, h3 {
   box-shadow: none !important;
 }
 [data-testid="stBaseButton-secondary"] {
-  background: transparent !important;
-  color: var(--color-ink-muted-48) !important;
-  border: 1px solid var(--color-divider-soft) !important;
+  background: var(--color-canvas) !important;
+  color: var(--color-ink) !important;
+  border: 1px solid var(--color-hairline) !important;
   border-radius: var(--radius-pill) !important;
   font-weight: 400 !important;
   font-size: var(--text-sm) !important;

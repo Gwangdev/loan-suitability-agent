@@ -518,7 +518,7 @@ def main():
     # 실제로 도는 것은 안내 하나이며(폼 채우기는 core.rule_based_parse), 심사는
     # Agent가 아니라 결정적 함수다(core/decision.py). 3-Agent 파이프라인은 코드에서
     # 삭제됐고 test_assessments.py가 부활을 막고 있는데 화면만 그대로 광고하고 있었다.
-    st.markdown("<div class='hero-title'>🏦 대출 상담 의사결정 지원</div>", unsafe_allow_html=True)
+    st.markdown("<div class='hero-title'>대출 상담 의사결정 지원</div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='hero-lead'>상담 내용은 <b>규칙 기반 파서</b>가 항목으로 옮기고, "
         "적격 판정과 DSR은 <b>코어 함수</b>가 계산합니다. "
