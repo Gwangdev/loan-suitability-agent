@@ -44,6 +44,13 @@ services:
     build:
       context: .
     command: ["alembic", "upgrade", "head"]
+    # 이미지의 기본 사용자(appuser)에 기대지 않고 app과 같이 compose에 적는다. 한 번 실행하고
+    # 끝나는 서비스라 빠져 있었는데, 스키마를 바꾸는 권한을 가진 컨테이너가 루트 파일시스템에
+    # 쓸 수 있을 이유는 없다. 쓰기는 DB로만 나간다.
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-loan_suitability}
     depends_on:
