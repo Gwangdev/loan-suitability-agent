@@ -40,7 +40,7 @@ Subtraction and addition are a pair. Full table, four portfolio axes, 3-step nar
 
 ## Completion Verdict
 
-**조건부 완료** (2026-09-12, `independent-verifier`, HEAD `e265094`; supersedes 08-28 「배포 보류」). No user-facing defect in the public deploy (API unreachable, landing hash = HEAD, 153 tests pass, CI green). Full completion is blocked by `G3` (unclearable — **user decides whether it is a permanent exception**) and #84–#88. Basis: `PROJECT_LOG.md` 검증 결과.
+**조건부 완료** (2026-09-12, `independent-verifier`, HEAD `e265094`; supersedes 08-28 「배포 보류」). No user-facing defect in the public deploy (API unreachable, landing hash = HEAD, 153 tests pass, CI green). Full completion is blocked by #84–#88 (`G3` is a permanent exception by user decision, 2026-09-12). Basis: `PROJECT_LOG.md` 검증 결과.
 
 ## Active Design Decisions
 
@@ -62,11 +62,11 @@ Full text with rejected alternatives: **`docs/설계결정.md` (ADR-001…034)**
 - **ADR-033** Reference-standard scope fixed. **IEEE compliance is never claimed.**
 - **ADR-034** **An unread amount is absent, not zero.** The rule parser returns `None` for a 부채 it could not read, and 부채 joins the required set with a predicate of its own — absence is missing, `0` is not. 부채 is the only field where `0` is a valid answer, so filling an unread one with `0` turned a parse failure into "no debt" and flipped a verdict toward approval. The other required fields keep 0/99 because those values are impossible for them by domain. **Hangul-numeral support is a separate matter** — it would shrink the cases, not remove the cause. **No new endpoint; response shape unchanged.**
 - **Data model frozen:** `docs/데이터모델.md`. **Never merge the two index migrations.**
-- **`G3` can never be cleared.** Recorded, not clearable. **Never silence the axis.**
+- **`G3` is a permanent exception (user decision 2026-09-12).** It scans past commit titles, so no commit can clear it; it no longer blocks completion or publication. **Never silence the axis** — it keeps printing.
 
 ## Open Labels (blocks completion)
 
-Ledger runs to **#83**. Last full count: **14 open through #69 (2026-09-04)** — not recounted since. Added 2026-09-11: **#70 partly open** (the worker path cannot carry the correlation ID — `explanation_run` has no column and the data model is frozen, so it needs `/design`; uvicorn's own startup/error logs are still plain text) · #75 closed 2026-09-12 (clean-hash runs at `f80e50f` and `5257504`; same request-path code swung ~14% run to run on the shared MacBook). Closed 2026-09-11: #71·#72·#73·#74·#76·#77·#80·#81; 2026-09-12 also #82·#83 (stale public numbers, `9a2ff53`). **`/verify` 2026-09-12 added #84–#90:** #84 `caddy`/`migrate` lack non-root/read-only despite the recorded claim · #85 `app.py` copies the server key into `os.environ` (⑦; unreachable in prod) · #86 state/ledger drift (open count stale) · #87 publication check + sensitive-data scan not run · #88 undecided dead surface (`has_api_key`) and gate warnings · observations #89 (`V1` passes with DB tests skipped) · #90 (no statute links). **Open, pre-existing, found in the security review:** #78 (`parsing-preview` lets LLM-parser failures become an unhandled 500 whose message is logged — the worker logs only a run ID). **#79 closed 2026-09-12** (`5257504`): the parser agent's `verbose=True` printed raw free text to stdout — confirmed by an egress-blocked run, turned off, locked by `tests/test_llm_verbose.py`.
+Ledger runs to **#83**. Last full count: **14 open through #69 (2026-09-04)** — not recounted since. Added 2026-09-11: **#70 partly open** (the worker path cannot carry the correlation ID — `explanation_run` has no column and the data model is frozen, so it needs `/design`; uvicorn's own startup/error logs are still plain text) · #75 closed 2026-09-12 (clean-hash runs at `f80e50f` and `5257504`; same request-path code swung ~14% run to run on the shared MacBook). Closed 2026-09-11: #71·#72·#73·#74·#76·#77·#80·#81; 2026-09-12 also #82·#83 (stale public numbers, `9a2ff53`). **`/verify` 2026-09-12 added #84–#90:** #84 `caddy`/`migrate` lack non-root/read-only despite the recorded claim · #85 `app.py` copied the server key into `os.environ` — **fixed in the working tree 2026-09-12, uncommitted** · #86 state/ledger drift (open count stale) · #87 publication check + sensitive-data scan not run · #88 undecided dead surface (`has_api_key`) and gate warnings · observations #89 (`V1` passes with DB tests skipped) · #90 (no statute links). **#91 open (found fixing #85):** `core.py` `load_dotenv(override=True)` writes `.env` (server key) into `os.environ` on import — local only (`.env` is dockerignored), but the local worker path relies on it; ADR-024 §24-R decision. **Open, pre-existing, found in the security review:** #78 (`parsing-preview` lets LLM-parser failures become an unhandled 500 whose message is logged — the worker logs only a run ID). **#79 closed 2026-09-12** (`5257504`): the parser agent's `verbose=True` printed raw free text to stdout — confirmed by an egress-blocked run, turned off, locked by `tests/test_llm_verbose.py`.
 **Deferred past submission, with reasons:** #18·#25·#70 (worker path — prod runs no worker) · #78 (the API is not exposed publicly and the UI uses the rule parser) · #59 (not reproducible with normal input).
 
 ## Open Feedback (ledger in `PROJECT_LOG.md`)
@@ -82,7 +82,7 @@ Ledger runs to **#83**. Last full count: **14 open through #69 (2026-09-04)** �
 
 1. **Done 2026-09-12:** landing page published (`596c5c8`·`9a2ff53`, server ff-only, no rebuild); draft moved to `archive/`.
 2. **Done 2026-09-12:** Streamlit four fixes (`6a147ff`·`9090651`·`a49097a`·`e265094`), `ui` rebuilt only. Open: 「gpt-4o-mini」 still wraps at its hyphen — a normal break opportunity `keep-all` does not govern.
-3. **`/verify` done 2026-09-12 → 조건부 완료.** User decides: `G3` exception, #88 deletions. Then `/build` #85 · #84 (prod change needs approval) · `/compact` #86 · publication check + scan for #87.
+3. **`/verify` done 2026-09-12 → 조건부 완료.** `G3` → permanent exception (user, 2026-09-12). User decides #88 deletions. `/build` #85 (in progress 2026-09-12) · #84 (prod change needs approval) · `/compact` #86 · publication check + scan for #87.
 4. **Tomorrow:** `#55` progress indicator → video → add the video to the landing page only once it exists.
 5. **Deferred past submission:** `/debug` #18·#25 · `/design` #70 · #78 · #59 · `core.py` split (#38), dual-parser UI wiring, internal mTLS, dependency lock — each with a reopen condition. No Vue rewrite (09-01 conditions unmet; an SPA would expose the API).
 
@@ -92,7 +92,7 @@ Ledger runs to **#83**. Last full count: **14 open through #69 (2026-09-04)** �
 
 ## Machine State (2026-09-12, MacBook)
 
-`PGPORT=5433 pytest` → **153 collected on 2026-09-12 (recounted, token test included)** (the summary line does not print: judge by exit code, count with a collection hook) · `gate --commit` COMMIT READY (G3 info · WARN 11 · X2 semgrep 0 · X3 pip-audit 0 — both installed via brew 2026-09-11) · `S3`·`S4` 0 · load 547/532/535 req/s, p95 24/165/268 ms at c=10/50/100 (`5257504`, clean hash; ±14% run to run).
+`PGPORT=5433 pytest` → **154 collected on 2026-09-12 (recounted after the #85 regression test)** (the summary line does not print: judge by exit code, count with a collection hook) · `gate --commit` COMMIT READY (G3 info · WARN 11 · X2 semgrep 0 · X3 pip-audit 0 — both installed via brew 2026-09-11) · `S3`·`S4` 0 · load 547/532/535 req/s, p95 24/165/268 ms at c=10/50/100 (`5257504`, clean hash; ±14% run to run).
 **The MacBook needs `PGPORT=5433`** (Homebrew Postgres moved off 5432; non-interactive shells never read `~/.zshrc`, so the 41 DB tests skip silently). Python with deps: `/opt/homebrew/opt/python@3.11/bin/python3.11`.
 **Windows desktop:** no docker, no `~/.ssh/loan-demo.pem`; run the gate as `PYTHONUTF8=1 python tools/gate.py .` (cp949 console).
 **Personal notes live outside ROOT** (`~/Documents/portfolio/`) — gate `L1` walks all of ROOT regardless of `.gitignore` (#73).
