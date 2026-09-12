@@ -220,3 +220,13 @@ def test_single_comma_six_digits_still_reads_as_man_won():
     이 테스트는 한계를 고정해 두어, 값이 조용히 바뀌면 드러나게 한다.
     """
     assert core.parse_korean_amount("월소득 500,000", ["월소득"]) == 5_000_000_000
+
+
+def test_a_trailing_punctuation_comma_is_not_read_as_a_won_unit_signal():
+    """문장부호 콤마가 붙은 단위 없는 숫자는 콤마가 없을 때와 같이 만원으로 읽는다.
+
+    산문 「월 3, 신용등급…」에서 숫자 그룹이 "3,"를 잡으면, 콤마가 있기만 하면 원 단위로 보던
+    분기가 3원을 돌려줬다. 표기 규칙을 콤마 개수와 금액 범위로 바꾼 뒤로는 콤마 뒤에 자리수가
+    없는 이 경우가 만원 관행으로 읽힌다. 규칙이 다시 콤마 유무로 돌아가지 않게 결과를 고정한다.
+    """
+    assert core._to_won("3,", None) == core._to_won("3", None) == 30_000

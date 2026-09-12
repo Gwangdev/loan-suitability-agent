@@ -57,6 +57,18 @@ def test_an_explicit_process_environment_value_wins_over_dotenv(tmp_path, monkey
     assert settings.read("SETTINGS_PROBE") == "from-environment"
 
 
+def test_an_explicitly_empty_environment_value_wins_over_dotenv(tmp_path, monkeypatch):
+    """키를 끄려고 빈 값으로 명시한 환경변수가 .env에 지면, 끈 줄 알았던 키로 실행된다."""
+    from loan_agent import settings
+
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("SETTINGS_PROBE=from-dotenv\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "DOTENV_PATH", dotenv)
+    monkeypatch.setenv("SETTINGS_PROBE", "")
+
+    assert settings.read("SETTINGS_PROBE", "fallback") == ""
+
+
 def test_a_missing_dotenv_file_falls_back_to_the_default(tmp_path, monkeypatch):
     from loan_agent import settings
 

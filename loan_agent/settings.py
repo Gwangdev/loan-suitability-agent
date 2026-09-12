@@ -19,6 +19,8 @@ DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 def read(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
-    if value:
+    # 빈 문자열도 명시된 값이다. 키를 끄려고 `OPENAI_API_KEY=`로 둔 환경변수가 .env에 지면
+    # 끈 줄 알았던 키로 실행되므로, 존재 여부로 판정한다.
+    if value is not None:
         return value
     return dotenv_values(DOTENV_PATH).get(name) or default

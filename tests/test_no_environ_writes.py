@@ -9,8 +9,8 @@
 환경을 실제로 바꾸는지 실행으로 보려면 secrets 파일과 Streamlit 런타임이 있어야 하므로, 쓰기
 형태를 구문 트리로 찾는다. 대입·삭제·setdefault·update·putenv 중 무엇이 다시 들어와도 깨진다.
 
-잡는 것은 서비스 코드의 직접 쓰기뿐이다. 라이브러리가 대신 쓰는 호출(core.py의 load_dotenv)은
-구문만으로는 쓰기인지 알 수 없어 여기서 다루지 않는다.
+잡는 것은 서비스 코드의 직접 쓰기뿐이다. 라이브러리가 대신 환경에 쓰는 호출(load_dotenv 같은)은
+구문만으로는 쓰기인지 알 수 없어 여기서 다루지 않고, tests/test_settings.py가 그 호출 자체를 막는다.
 """
 import ast
 import os

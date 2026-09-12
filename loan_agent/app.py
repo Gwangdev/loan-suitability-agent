@@ -24,10 +24,11 @@ import uuid
 
 import httpx
 
-# Streamlit Cloud는 `streamlit run loan_agent/app.py`로 실행하며, 이때 리포 루트가
-#   sys.path에 포함되지 않아 `from loan_agent import core`가 ModuleNotFoundError로 실패한다
-#   (로컬 `python -m streamlit`은 CWD를 자동 추가하므로 문제없다). 실행 방식과 무관하게 동작하도록
-#   이 파일의 상위 폴더(=리포 루트)를 sys.path에 추가한다.
+# `streamlit run loan_agent/app.py`로 실행하면(compose의 `ui` 명령이 이 방식이다) 스크립트가 있는
+#   폴더만 sys.path에 들어가고 리포 루트는 들어가지 않아 `from loan_agent import core`가
+#   ModuleNotFoundError로 실패한다(`python -m streamlit`은 CWD를 자동 추가하므로 문제없다).
+#   처음에는 폐기한 Streamlit Cloud 배포를 이유로 적었지만, 같은 실행 방식을 쓰는 지금의 컨테이너에도
+#   필요하다. 실행 방식과 무관하게 동작하도록 이 파일의 상위 폴더(=리포 루트)를 sys.path에 추가한다.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
