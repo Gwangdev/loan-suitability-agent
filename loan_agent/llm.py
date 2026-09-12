@@ -59,7 +59,9 @@ def build_parser_agent(llm):
             "언급이 없거나 없다고 하면 false로 둡니다. "
             "입력에 없는 정보를 지어내지 않습니다."
         ),
-        llm=llm, allow_delegation=False, verbose=True,
+        # 상세 출력은 끈다. 켜면 CrewAI가 LLM을 부르기 전에 과업 설명을 표준 출력에 찍는데,
+        # 이 과업 설명에는 고객의 자연어 원문이 끼워져 들어가 그대로 컨테이너 로그가 된다.
+        llm=llm, allow_delegation=False, verbose=False,
     )
 
 
