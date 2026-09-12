@@ -34,17 +34,13 @@ if _REPO_ROOT not in sys.path:
 
 import streamlit as st
 
-# .env 외에 st.secrets(.streamlit/secrets.toml)로도 키를 줄 수 있게 지원.
-# secrets.toml이 아예 없으면 st.secrets 접근 시 예외가 나므로 조용히 무시한다.
-try:
-    if "OPENAI_API_KEY" in st.secrets and not os.getenv("OPENAI_API_KEY"):
-        os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
-    if "OPENAI_MODEL_NAME" in st.secrets and not os.getenv("OPENAI_MODEL_NAME"):
-        os.environ["OPENAI_MODEL_NAME"] = st.secrets["OPENAI_MODEL_NAME"]
-except Exception:
-    pass
+# 이 자리에는 Streamlit secrets의 서버 키와 모델명을 os.environ으로 옮기는 블록이 있었다.
+# 폐기한 Streamlit Cloud 배포를 위한 것이었고, 키를 전역 환경에 쓰면 같은 프로세스의 어떤
+# 코드든 그 키를 읽을 수 있어 「키는 인자로만 흐른다」는 규칙과 어긋났다. 화면은 방문자 키만
+# 세션 메모리에서 요청 헤더로 넘기고 서버 키를 쓰지 않으므로 블록을 지웠다.
+# tests/test_no_environ_writes.py가 같은 쓰기의 재유입을 막는다.
 
-from loan_agent import core  # noqa: E402  (secrets 반영 이후에 import)
+from loan_agent import core  # noqa: E402  (sys.path 보정 이후에 import)
 
 # Compose에서는 서비스 이름 app으로, 로컬에서는 같은 포트의 Uvicorn으로 접속한다. 화면이
 # 판정을 직접 계산하지 않고 이 접속점만 알게 해야 UI → API → DB 경계가 실제 요청 경로가 된다.
