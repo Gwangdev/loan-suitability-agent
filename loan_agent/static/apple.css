@@ -219,6 +219,11 @@ h1, h2, h3 {
   line-height: var(--leading-snug) !important;
   box-shadow: none !important;
 }
+/* 좁은 폭에서 한국어가 음절 중간에서 잘렸다(「토 / 큰」·「사 / 이드바의」). Streamlit이
+   마크다운 문단에 `word-break: break-word`를 직접 걸어 두어 컨테이너에 준 값은 문단까지
+   상속되지 않으므로, 문단에 건다. 한 줄에 들어가지 않는 긴 토큰은 기존 overflow-wrap이
+   계속 줄바꿈한다. */
+[data-testid="stAlertContainer"] p { word-break: keep-all !important; }
 
 /* --- 버튼 그래머 --- */
 [data-testid="stBaseButton-primary"] {
