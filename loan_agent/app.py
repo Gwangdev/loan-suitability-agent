@@ -647,7 +647,7 @@ def main():
         blocked = bool(missing) or not confirmed
         col_a, col_b = st.columns(2)
         with col_a:
-            screen_clicked = st.button("결정적 심사 (키 불필요)", disabled=blocked)
+            screen_clicked = st.button("결정적 심사 (키 불필요)", key="screen_run", disabled=blocked)
         with col_b:
             run_clicked = st.button("AI 안내문까지 생성 (키 필요)", type="primary",
                                     disabled=(blocked or api_key is None or quota_left <= 0))

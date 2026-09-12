@@ -262,6 +262,14 @@ h1, h2, h3 {
   border-color: var(--color-primary) !important;
 }
 [data-testid="stBaseButton-secondary"]:active { transform: scale(0.97); }
+/* 키 없는 방문자가 실제로 누를 수 있는 실행은 「결정적 심사」 하나인데, 보조 버튼 규칙을
+   그대로 받아 누를 수 없는 「AI 안내문까지 생성」보다 작게 보였다. 그 버튼만 컨테이너 키
+   클래스로 골라 크기를 기본 버튼에 맞춘다. 사이드바 버튼은 보조 크기 그대로 둔다. */
+.st-key-screen_run [data-testid="stBaseButton-secondary"] {
+  padding: var(--space-3) var(--space-5) !important;
+  font-size: var(--text-md) !important;
+  font-weight: 500 !important;
+}
 
 /* --- 입력창 --- */
 [data-testid="stTextArea"] textarea {
