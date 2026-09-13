@@ -171,7 +171,7 @@ code_roots:
 #   rule_candidate     always present — the deterministic parser's fields
 #   llm_candidate      the LLM parser's fields, or null when no key was sent
 #   mismatched_fields  the field names the two disagree on. THIS is the check
-#   parse_accuracy     the Eval 파싱정확도 score for this pair (wires up #18)
+#   parse_accuracy     the Eval 파싱정확도 score for this pair (scored from real parser output)
 #   missing_fields     required fields still absent, as before
 #   degraded           true when llm_candidate is null, so a reader can tell
 #                      "the two agreed" apart from "only one parser ran"
@@ -245,8 +245,8 @@ exclude:
 #       states were unreachable and the audit columns stayed empty.
 #
 #       This is a design gap being filled, not a scope expansion. ADR-003
-#       already stated that execution belongs to a separate runner, and T1 #7
-#       called the PENDING row an outbox — an outbox with no consumer is just
+#       already stated that execution belongs to a separate runner, and the same
+#       ADR called the PENDING row an outbox — an outbox with no consumer is just
 #       a table nobody reads.
 #
 #       Who executes (revised 2026-08-29, ADR-024 §24-R). Whoever holds the

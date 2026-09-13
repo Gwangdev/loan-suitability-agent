@@ -178,7 +178,7 @@ def test_the_superseded_pipeline_is_gone_from_the_module():
 
 
 def test_parallel_same_key_creates_exactly_one_assessment(api_db):
-    """같은 Idempotency-Key로 병렬 요청 N개 — 심사는 정확히 1건이어야 한다(T1 #9).
+    """같은 Idempotency-Key로 병렬 요청 N개 — 심사는 정확히 1건이어야 한다.
 
     선조회는 최적화일 뿐 보장이 아니다. READ COMMITTED에서 조회와 삽입 사이에
     경쟁이 있으므로, 이 테스트가 통과하려면 DB의 UNIQUE 제약이 최종 방어선으로
