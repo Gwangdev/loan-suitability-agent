@@ -8,7 +8,8 @@
 자연어로 받은 대출 상담 정보를 구조화하고, 규칙 기반 코어 함수가 적합성과 DSR을 계산한 뒤,
 LLM이 확정된 결과를 고객용 안내문으로 설명하는 의사결정 지원 데모입니다.
 
-[라이브 데모](https://loan.gwang.dev) · [API 명세](SPEC.yaml) ·
+[라이브 데모](https://loan.gwang.dev) · [개발자 가이드](docs/개발자_가이드.md) ·
+[API 명세서](docs/API_명세서.md) ·
 [설계 결정](docs/설계결정.md) · [평가 리포트](docs/평가리포트.md)
 
 > 합성 데이터로 동작하는 데모 프로젝트입니다. 실제 대출 승인·거절, 상품 중개, 법률·금융
@@ -160,7 +161,7 @@ docker compose --profile local up -d --build
 | http://localhost:8501 | 데모 화면 |
 | http://localhost:8000/docs | OpenAPI 문서 |
 
-공개 API 계약은 [`SPEC.yaml`](SPEC.yaml), 운영 배포는
+API 사용법은 [API 명세서](docs/API_명세서.md), 요구사항 계약은 [`SPEC.yaml`](SPEC.yaml), 운영 배포는
 [배포 절차서](docs/배포절차.md)에서 확인할 수 있습니다.
 
 ---
@@ -188,6 +189,11 @@ docker compose --profile local up -d --build
 
 | 문서 | 내용 |
 |---|---|
+| [개발자 가이드](docs/개발자_가이드.md) | 서비스 파악 순서와 문서 지도 |
+| [문제와 Use Case](docs/서비스_문제와_유스케이스.md) | Pain Point·역할·정상/실패 시나리오 |
+| [아키텍처](docs/아키텍처.md) | 공개·로컬 구성도와 모듈 책임 |
+| [데이터 흐름](docs/데이터_흐름.md) | 데이터 이동·동기/비동기 시퀀스·트랜잭션 경계 |
+| [API 명세서](docs/API_명세서.md) | 9개 엔드포인트의 필드·예제·오류·재시도 |
 | [설계 결정](docs/설계결정.md) | 34건의 ADR과 기각한 대안 |
 | [데이터 모델](docs/데이터모델.md) | ERD·상태 전이·제약·인덱스 |
 | [평가 리포트](docs/평가리포트.md) | Eval 지표·케이스·결함 주입 결과 |
