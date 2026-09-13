@@ -141,7 +141,7 @@ async def generate_guidance(decision_context: dict, *, api_key: str | None = Non
 
 
 def get_model_name() -> str:
-    """현재 .env에 설정된 모델명(키 유무와 무관하게 조회만, 오류 없음)."""
+    """설정된 모델명 — 환경변수, 없으면 .env, 둘 다 없거나 비었으면 기본값(키 유무와 무관하게 조회만, 오류 없음)."""
     return settings.read("OPENAI_MODEL_NAME", "openai/gpt-4o-mini")
 
 

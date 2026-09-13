@@ -66,7 +66,24 @@ def test_an_explicitly_empty_environment_value_wins_over_dotenv(tmp_path, monkey
     monkeypatch.setattr(settings, "DOTENV_PATH", dotenv)
     monkeypatch.setenv("SETTINGS_PROBE", "")
 
-    assert settings.read("SETTINGS_PROBE", "fallback") == ""
+    assert settings.read("SETTINGS_PROBE") == ""
+
+
+def test_an_empty_environment_value_falls_back_to_the_default_not_to_dotenv(tmp_path, monkeypatch):
+    """기본값이 있는 설정을 빈 값으로 두면 기본값을 쓴다. 빈 모델명이 LLM 호출까지 가면 안 된다.
+
+    빈 환경변수를 명시값으로 보게 고친 뒤, 기본값이 있는 이름에서도 빈 문자열이 그대로 나가
+    OPENAI_MODEL_NAME= 한 줄이 모델명 없는 호출이 됐다. .env 경로는 같은 경우에 기본값을 쓰므로
+    두 경로의 판정이 갈라져 있었다. 빈 값이 .env로 넘어가지 않는다는 점은 그대로 지킨다.
+    """
+    from loan_agent import settings
+
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("SETTINGS_PROBE=from-dotenv\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "DOTENV_PATH", dotenv)
+    monkeypatch.setenv("SETTINGS_PROBE", "")
+
+    assert settings.read("SETTINGS_PROBE", "fallback") == "fallback"
 
 
 def test_a_missing_dotenv_file_falls_back_to_the_default(tmp_path, monkeypatch):

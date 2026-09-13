@@ -20,7 +20,10 @@ DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 def read(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
     # 빈 문자열도 명시된 값이다. 키를 끄려고 `OPENAI_API_KEY=`로 둔 환경변수가 .env에 지면
-    # 끈 줄 알았던 키로 실행되므로, 존재 여부로 판정한다.
+    # 끈 줄 알았던 키로 실행되므로, 존재 여부로 판정해 .env로 넘어가지 않게 한다.
+    # 처음에는 빈 값을 그대로 돌려줬는데, 기본값이 있는 이름(모델명)에서는 빈 문자열이 호출까지
+    # 가서 모델명 없는 LLM 호출이 됐고, .env 경로는 같은 경우에 기본값을 써서 두 경로가 갈라졌다.
+    # 그래서 빈 값은 .env를 막되, 기본값이 있으면 기본값으로 채운다.
     if value is not None:
-        return value
+        return value or (default if default is not None else value)
     return dotenv_values(DOTENV_PATH).get(name) or default
