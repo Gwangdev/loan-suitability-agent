@@ -48,6 +48,57 @@ def test_submit_assessment_uses_a_new_key_for_each_new_confirmed_submission(monk
     assert keys[0] != keys[1]
 
 
+def test_visitor_key_explanation_runs_inside_a_progress_indicator(monkeypatch):
+    """방문자 키로 안내문을 만드는 동안 화면에 진행 표시가 떠 있어야 한다.
+
+    이 경로는 심사 제출과 안내문 실행을 동기로 기다리므로 수 초가 걸리는데, 화면에는 아무
+    표시가 없어 버튼을 눌렀는지조차 알 수 없었다. 두 요청이 모두 진행 표시가 켜진 동안
+    나가는지를 고정한다 — 표시가 요청보다 늦게 켜지거나 먼저 꺼지면 이 테스트가 깨진다.
+    """
+    state = {"spinning": False, "messages": []}
+    calls = []
+
+    class Spinner:
+        def __init__(self, text):
+            state["messages"].append(text)
+
+        def __enter__(self):
+            state["spinning"] = True
+
+        def __exit__(self, *exc):
+            state["spinning"] = False
+            return False
+
+    class Response:
+        def __init__(self, body):
+            self._body = body
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._body
+
+    def post(url, *, json=None, headers, timeout):
+        calls.append((url, state["spinning"]))
+        if url.endswith("/explanation-runs"):
+            return Response({"explanation_text": "안내문", "input_tokens": 1, "output_tokens": 1})
+        return Response({"assessment_id": "a", "verdict": "ELIGIBLE"})
+
+    monkeypatch.setattr(app.st, "spinner", Spinner)
+    monkeypatch.setattr(app.httpx, "post", post)
+    customer = {"월소득": 7_000_000, "부채": 0, "신용등급": 1, "희망금액": 30_000_000, "직장유형": "정규직", "담보보유": False}
+
+    assessment, payload = app._run_explanation(customer, "sk-visitor")
+
+    assert [url.rsplit("/", 1)[-1] for url, _ in calls] == ["assessments", "explanation-runs"]
+    assert all(spinning for _, spinning in calls), "진행 표시가 꺼진 채로 요청이 나갔다"
+    assert state["spinning"] is False, "요청이 끝난 뒤에도 진행 표시가 남았다"
+    assert state["messages"] and state["messages"][0]
+    assert assessment["assessment_id"] == "a"
+    assert payload["explanation_text"] == "안내문"
+
+
 def test_usage_cost_uses_input_and_output_token_rates():
     cost = app._usage_cost_usd({"prompt_tokens": 1_000, "completion_tokens": 500})
 

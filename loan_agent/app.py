@@ -494,6 +494,27 @@ def _load_demo(index: int):
         st.session_state.last_screen = None  # 데모는 픽스처 파싱에서 screen 재계산
 
 
+def _run_explanation(customer: dict, api_key: str):
+    """방문자 키로 심사를 제출하고 안내문 실행이 끝날 때까지 기다린다.
+
+    이 경로는 동기 실행이라 버튼을 누른 뒤 결과가 올 때까지 화면이 그대로였고, 방문자는 버튼이
+    눌렸는지조차 알 수 없었다. 기다리는 구간 전체를 진행 표시로 감싸, 요청이 나가 있는 동안에는
+    표시가 떠 있게 한다.
+    """
+    with st.spinner("AI 안내문을 생성하는 중입니다. 완료될 때까지 기다려 주세요."):
+        assessment = _submit_assessment(customer)
+        run = httpx.post(
+            f"{API_BASE_URL}/api/v1/assessments/{assessment['assessment_id']}/explanation-runs",
+            headers={"X-OpenAI-API-Key": api_key},
+            # 서버 상한(ADR-022의 200초)보다 바깥 계층이 길어야 한다. 같게 두면
+            # 서버가 상한을 넘겨 503을 만드는 그 순간 클라이언트가 먼저 끊어,
+            # 정작 준비해 둔 503 안내가 화면에 도달하지 못한다.
+            timeout=core.EXPLANATION_RUN_TIMEOUT_SECONDS + CLIENT_TIMEOUT_MARGIN_SEC,
+        )
+        run.raise_for_status()
+        return assessment, run.json()
+
+
 # 방문자가 자기 키를 쓰더라도 무제한 호출로 지갑이 새지 않도록
 #   하는 상한. 공개 데모 기준의 보수적 기본값.
 MAX_INPUT_CHARS = 2000        # 입력 길이 상한 → 토큰 폭증 차단
@@ -672,17 +693,7 @@ def main():
             st.warning(f"연속 실행을 제한합니다. {COOLDOWN_SEC - int(now - last_ts)}초 후 다시 시도해주세요.")
         else:
             try:
-                assessment = _submit_assessment(customer)
-                run = httpx.post(
-                    f"{API_BASE_URL}/api/v1/assessments/{assessment['assessment_id']}/explanation-runs",
-                    headers={"X-OpenAI-API-Key": api_key},
-                    # 서버 상한(ADR-022의 200초)보다 바깥 계층이 길어야 한다. 같게 두면
-                    # 서버가 상한을 넘겨 503을 만드는 그 순간 클라이언트가 먼저 끊어,
-                    # 정작 준비해 둔 503 안내가 화면에 도달하지 못한다.
-                    timeout=core.EXPLANATION_RUN_TIMEOUT_SECONDS + CLIENT_TIMEOUT_MARGIN_SEC,
-                )
-                run.raise_for_status()
-                payload = run.json()
+                assessment, payload = _run_explanation(customer, api_key)
                 # Eval을 통과하지 못한 안내문은 저장되지 않으므로(ADR-007) 본문이
                 # 비어 온다. 그대로 렌더하면 방문자는 토큰을 쓰고도 아무 설명 없는
                 # 빈 화면을 본다 — 검증에서 걸렸다는 사실 자체를 알려야 한다.
