@@ -275,7 +275,7 @@ def _render_result(out: dict, screen: dict = None):
                     f"금리 {best['금리범위']} · 한도 {best['최대한도']:,}원"
                 )
                 # 최저금리 단일 기준 대신 금리·승인여유·중도상환수수료를
-                #   함께 반영한 상위 3개 랭킹을 비교표로 시현(§docs C-2).
+                #   함께 반영한 상위 3개 랭킹을 비교표로 시현한다.
                 if len(screen.get("추천후보", [])) > 1:
                     with st.expander("대안 상품 비교 (상위 3위 · 금리+승인여유+중도상환 기준)"):
                         st.dataframe(
@@ -495,7 +495,7 @@ def _load_demo(index: int):
 
 
 # 방문자가 자기 키를 쓰더라도 무제한 호출로 지갑이 새지 않도록
-#   하는 상한(§docs 개선계획 C-4). 공개 데모 기준의 보수적 기본값.
+#   하는 상한. 공개 데모 기준의 보수적 기본값.
 MAX_INPUT_CHARS = 2000        # 입력 길이 상한 → 토큰 폭증 차단
 MAX_RUNS_PER_SESSION = 10     # 세션당 실제 실행(LLM) 횟수 상한
 COOLDOWN_SEC = 5              # 연속 실행 최소 간격(쿨다운)

@@ -1,6 +1,6 @@
 """결정적 심사 로직(screen_loan)·DSR 테스트 (API 키 불필요).
 
-기존 인라인 self-test(run_logic_selftest)를 pytest로 이관하고, 문서(§docs A7)에서 지적한
+기존 인라인 self-test(run_logic_selftest)를 pytest로 이관하고, 문서 검토에서 지적한
 경계값(한도 경계·연소득 0·음수·DSR 단조성) 테스트를 추가한다.
 """
 import pytest

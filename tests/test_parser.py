@@ -101,7 +101,7 @@ def test_parsing_preview_degrades_to_rule_candidate_without_a_key(monkeypatch):
     assert body["degraded"] is True
 
 
-# ── 필수필드 검증 (§docs A2/타팀 피드백-2) ──────────────────
+# ── 필수필드 검증 ──────────────────
 def test_missing_required_fields_none_when_complete():
     parsed = {"월소득": 3000000, "신용등급": 3, "희망금액": 20000000, "부채": 0}
     assert core.missing_required_fields(parsed) == []

@@ -1,4 +1,4 @@
-"""다기준 상품 랭킹 테스트 (API 키 불필요) — §docs C-2."""
+"""다기준 상품 랭킹 테스트 (API 키 불필요)."""
 from loan_agent import core
 
 

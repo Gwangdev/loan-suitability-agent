@@ -54,7 +54,7 @@ loan.gwang.dev {
 # (SPEC.yaml portfolio host, ADR-031 개정 2026-09-01).
 #
 # `ui`를 거치지 않고 Caddy가 파일을 직접 낸다. 프록시로 두면 Streamlit이 죽을 때
-# 포트폴리오가 함께 사라지는데, 그 실패 양상은 가정이 아니라 `#61`에서 실측됐다.
+# 포트폴리오가 함께 사라지는데, 그 실패 양상은 가정이 아니라 인스턴스 재부팅으로 실측됐다.
 gwang.dev {
 	import security_headers
 
