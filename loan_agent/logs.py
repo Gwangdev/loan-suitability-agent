@@ -16,16 +16,26 @@ API→AI→Eval로 추적」하는 용도로 정의했다. 그런데 식별자�
 
 식별자는 기록하는 순간에 핸들러 필터가 찍는다. 전역 레코드 팩토리로 찍으면 누군가
 `extra`로 같은 키를 넘길 때 `logging`이 기존 속성을 덮어쓰려 한다며 예외를 낸다.
+
+허용 목록은 필드 이름을 막을 뿐 메시지와 예외 문자열의 내용은 막지 못한다. 처리되지 않은
+예외는 traceback 전체가 기록되는데, 끝에 줄바꿈이 붙은 키처럼 형식이 틀린 키로 요청을 만들면
+전송 계층 오류 메시지에 키 원문이 들어가고 제공자 SDK가 그 오류를 감싸 연쇄 traceback에 남는다.
+그래서 완성된 한 줄에서 키 형태(`sk-`로 시작하는 OpenAI 키)를 가린 뒤 내보낸다. 다른 형태의
+자격증명은 이 규칙이 잡지 않으므로, 기록하지 않는다는 원칙이 먼저다.
 """
 import contextvars
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 
 _correlation_id: contextvars.ContextVar[uuid.UUID | None] = contextvars.ContextVar(
     "correlation_id", default=None
 )
+
+# OpenAI 키 형태. `sk-proj-…`처럼 접두 뒤에 영숫자·`-`·`_`가 이어진다.
+_API_KEY_SHAPED = re.compile(r"sk-[A-Za-z0-9_\-]{8,}")
 
 # `correlation_id`는 필터가 따로 다루므로 목록에서 뺀다.
 EXTRA_FIELDS = ("run_id", "method", "path", "status", "latency_ms")
@@ -73,7 +83,7 @@ class JsonFormatter(logging.Formatter):
                 entry[key] = value
         if record.exc_info:
             entry["exception"] = self.formatException(record.exc_info)
-        return json.dumps(entry, ensure_ascii=False, default=str)
+        return _API_KEY_SHAPED.sub("sk-***", json.dumps(entry, ensure_ascii=False, default=str))
 
 
 def configure(level: int = logging.INFO, stream=None) -> logging.Handler:

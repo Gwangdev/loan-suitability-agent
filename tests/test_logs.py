@@ -93,6 +93,38 @@ def test_body_query_and_api_key_never_reach_the_log(captured):
     assert "query-marker" not in captured.raw
 
 
+def test_an_api_key_inside_an_unhandled_exception_never_reaches_the_log(captured):
+    """처리되지 않은 예외의 traceback에 키가 섞여 있어도 로그에는 남지 않아야 한다.
+
+    예외 처리기는 traceback 전체를 기록한다. 끝에 줄바꿈이 붙은 키처럼 형식이 틀린 키로 HTTP
+    요청을 만들면 전송 계층 오류 메시지에 키 원문이 들어가고, 제공자 SDK는 그 오류를 감싸 다시
+    던지므로 연쇄 traceback에 키가 남는다. 처리기에 닿으면 그대로 서버 로그에 기록됐다.
+    """
+    key = "sk-proj-LEAKCHECK0123456789abcdef"
+    probe = FastAPI()
+    errors.install(probe)
+
+    @probe.get("/boom")
+    def boom():
+        try:
+            raise ValueError(f"Illegal header value b'Bearer {key}\\n'")
+        except ValueError as transport_error:
+            raise ConnectionError("Connection error.") from transport_error
+
+    TestClient(probe, raise_server_exceptions=False).get("/boom")
+
+    assert "unhandled error" in captured.raw
+    assert "LEAKCHECK" not in captured.raw
+
+
+def test_formatter_masks_api_key_shaped_values_in_messages(captured):
+    """메시지 인자로 키 형태 값이 들어가도 가려서 기록한다. 호출자의 실수가 로그로 새지 않게 한다."""
+    logging.getLogger("loan_agent.test_masking").error("provider rejected %s", "sk-LEAKCHECK0123456789")
+
+    assert "provider rejected" in captured.raw
+    assert "LEAKCHECK" not in captured.raw
+
+
 def test_unhandled_error_is_logged_under_the_request_correlation_id(captured):
     """예외 처리기는 미들웨어 바깥에서 돌지만 같은 식별자로 기록해야 둘을 이을 수 있다."""
     local = FastAPI()
