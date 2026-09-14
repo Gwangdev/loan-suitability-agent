@@ -71,7 +71,9 @@ def claim_one() -> uuid.UUID | None:
     """대기 중인 작업 하나를 집어 RUNNING으로 바꾸고 곧바로 커밋한다.
 
     `SKIP LOCKED`가 다른 워커에게 이미 잡힌 행을 건너뛴다. 그래서 워커를 여럿 띄워도
-    한 작업이 두 번 실행되지 않고, 그 보장을 애플리케이션 조건문이 아니라 DB가 준다.
+    같은 대기 행을 두 워커가 동시에 집지 않고, 그 보장을 애플리케이션 조건문이 아니라 DB가 준다.
+    다만 상한을 넘긴 RUNNING은 `reclaim_stale`이 대기로 되돌리므로, 느린 실행이 아직 살아 있을 때
+    회수되면 같은 작업이 한 번 더 실행될 수 있다. 외부 호출의 정확히 한 번 실행은 보장하지 않는다.
     """
     with Session(bind=db_engine.get_engine()) as session, session.begin():
         run_id = session.execute(
