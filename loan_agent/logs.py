@@ -20,8 +20,15 @@ API→AI→Eval로 추적」하는 용도로 정의했다. 그런데 식별자�
 허용 목록은 필드 이름을 막을 뿐 메시지와 예외 문자열의 내용은 막지 못한다. 처리되지 않은
 예외는 traceback 전체가 기록되는데, 끝에 줄바꿈이 붙은 키처럼 형식이 틀린 키로 요청을 만들면
 전송 계층 오류 메시지에 키 원문이 들어가고 제공자 SDK가 그 오류를 감싸 연쇄 traceback에 남는다.
-그래서 완성된 한 줄에서 키 형태(`sk-`로 시작하는 OpenAI 키)를 가린 뒤 내보낸다. 다른 형태의
-자격증명은 이 규칙이 잡지 않으므로, 기록하지 않는다는 원칙이 먼저다.
+그 traceback은 두 번 기록된다. 앱의 예외 처리기가 한 번 남기고, 처리기가 응답을 만든 뒤에도
+Starlette가 예외를 다시 던지므로 uvicorn이 `uvicorn.error` 로거와 자기 포매터로 한 번 더 쓴다.
+그래서 가림은 포매터가 아니라 핸들러 필터로 두고, 앱 핸들러와 uvicorn·루트 로거의 핸들러에
+함께 건다. 필터는 직렬화하기 전의 원래 문자열(메시지·예외·스택)에서 키 형태(`sk-`로 시작하는
+OpenAI 키)를 가리므로 어느 포매터가 쓰든 가린 값이 나간다.
+
+필터는 설정하는 순간 붙어 있는 핸들러에만 걸린다. uvicorn은 앱 모듈을 import하기 전에 자기
+로그 설정을 끝내므로 그 핸들러는 포함되지만, 나중에 붙는 핸들러는 포함되지 않는다. 다른 형태의
+자격증명도 이 규칙이 잡지 않는다. 가림은 안전장치이고, 기록하지 않는다는 원칙이 먼저다.
 """
 import contextvars
 import json
@@ -35,7 +42,11 @@ _correlation_id: contextvars.ContextVar[uuid.UUID | None] = contextvars.ContextV
 )
 
 # OpenAI 키 형태. `sk-proj-…`처럼 접두 뒤에 영숫자·`-`·`_`가 이어진다.
-_API_KEY_SHAPED = re.compile(r"sk-[A-Za-z0-9_\-]{8,}")
+# 왼쪽 경계가 없으면 `risk-assessment`·`task-scheduler`처럼 단어 끝의 `sk-`까지 가린다.
+# `repr`로 옮긴 문자열에서는 줄바꿈이 `\` `n` 두 글자가 되어 뒤따르는 키가 영문자 뒤에 붙은
+# 것처럼 보이므로, 이스케이프 문자 바로 뒤도 경계로 인정한다.
+_API_KEY_SHAPED = re.compile(r"(?:(?<![A-Za-z0-9])|(?<=\\[nrt]))sk-[A-Za-z0-9_\-]{8,}")
+_MASKED_KEY = "sk-***"
 
 # `correlation_id`는 필터가 따로 다루므로 목록에서 뺀다.
 EXTRA_FIELDS = ("run_id", "method", "path", "status", "latency_ms")
@@ -43,6 +54,14 @@ EXTRA_FIELDS = ("run_id", "method", "path", "status", "latency_ms")
 # 이 모듈이 붙인 핸들러를 알아보는 표식. 다시 설정할 때 앞서 붙인 것만 떼어 내고
 # 다른 곳에서 붙인 핸들러는 건드리지 않는다.
 _HANDLER_MARK = "_loan_agent_json"
+
+# 이 모듈 밖에서 핸들러를 붙이는 로거 중 가림을 거쳐야 하는 곳. `uvicorn.error`는 핸들러 없이
+# `uvicorn` 로거로 전파되지만, 설정을 바꿔 직접 핸들러를 붙인 경우도 함께 덮는다. 빈 이름은 루트다.
+_FOREIGN_LOGGERS = ("uvicorn", "uvicorn.error", "")
+
+# 예외 문자열을 미리 만들 때 쓴다. 표준 포매터와 uvicorn 포매터 모두 `formatException`을 바꾸지
+# 않으므로 같은 모양이 나온다.
+_TRACEBACK_FORMATTER = logging.Formatter()
 
 
 def bind(correlation_id: uuid.UUID) -> contextvars.Token:
@@ -64,6 +83,48 @@ def _stamp_correlation_id(record: logging.LogRecord) -> bool:
     return True
 
 
+def _mask(text: str) -> str:
+    return _API_KEY_SHAPED.sub(_MASKED_KEY, text)
+
+
+class _MaskApiKeys(logging.Filter):
+    """레코드의 메시지·예외·스택 문자열에서 키 형태를 가린다.
+
+    예외 문자열은 여기서 만들어 `exc_text`에 넣는다. 표준 `Formatter.format`은 `exc_text`가 있으면
+    traceback을 다시 만들지 않으므로, 뒤에서 어떤 포매터가 쓰든 가린 문자열을 쓴다. 메시지는 키가
+    들어 있을 때만 바꾼다. uvicorn 접근 로그 포매터처럼 `args`를 튜플로 읽는 포매터가 있어,
+    바꿀 필요가 없는 레코드는 그대로 둔다.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except (TypeError, ValueError):
+            # 인자가 형식 문자열과 맞지 않는 호출이다. logging은 오류 보고에 msg와 args를 그대로
+            # 찍으므로, 합친 문자열을 가려 그 보고에도 키가 나가지 않게 한다.
+            message = f"{record.msg} {record.args}"
+            record.msg, record.args = _mask(message), None
+        else:
+            masked = _mask(message)
+            if masked != message:
+                record.msg, record.args = masked, None
+        if record.exc_info and not record.exc_text:
+            record.exc_text = _TRACEBACK_FORMATTER.formatException(record.exc_info)
+        if record.exc_text:
+            record.exc_text = _mask(record.exc_text)
+        if record.stack_info:
+            record.stack_info = _mask(record.stack_info)
+        return True
+
+
+_MASK_FILTER = _MaskApiKeys()
+
+
+def _attach_mask(handler: logging.Handler) -> None:
+    if not any(isinstance(existing, _MaskApiKeys) for existing in handler.filters):
+        handler.addFilter(_MASK_FILTER)
+
+
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         entry = {
@@ -82,12 +143,15 @@ class JsonFormatter(logging.Formatter):
             if value is not None:
                 entry[key] = value
         if record.exc_info:
-            entry["exception"] = self.formatException(record.exc_info)
-        return _API_KEY_SHAPED.sub("sk-***", json.dumps(entry, ensure_ascii=False, default=str))
+            entry["exception"] = record.exc_text or self.formatException(record.exc_info)
+        return json.dumps(entry, ensure_ascii=False, default=str)
 
 
 def configure(level: int = logging.INFO, stream=None) -> logging.Handler:
-    """`loan_agent` 로거에 JSON 핸들러를 건다. 여러 번 불러도 핸들러는 하나다."""
+    """`loan_agent` 로거에 JSON 핸들러를 걸고, 이미 붙어 있는 서버 로거 핸들러에 가림을 건다.
+
+    여러 번 불러도 JSON 핸들러는 하나이고, 한 핸들러에 가림 필터가 두 번 붙지 않는다.
+    """
     logger = logging.getLogger("loan_agent")
     for existing in [h for h in logger.handlers if getattr(h, _HANDLER_MARK, False)]:
         logger.removeHandler(existing)
@@ -95,9 +159,14 @@ def configure(level: int = logging.INFO, stream=None) -> logging.Handler:
     handler = logging.StreamHandler(stream)
     handler.setFormatter(JsonFormatter())
     handler.addFilter(_stamp_correlation_id)
+    _attach_mask(handler)
     setattr(handler, _HANDLER_MARK, True)
     logger.addHandler(handler)
     logger.setLevel(level)
+
+    for name in _FOREIGN_LOGGERS:
+        for foreign in logging.getLogger(name).handlers:
+            _attach_mask(foreign)
     return handler
 
 

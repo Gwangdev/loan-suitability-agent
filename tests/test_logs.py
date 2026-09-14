@@ -9,15 +9,18 @@
 않는다는 것을 파싱한 필드가 아니라 출력 문자열 전체에서 본다. 필드만 보면 허용 목록
 밖으로 새는 경로를 놓친다.
 """
+import copy
 import io
 import json
 import logging
+import logging.config
 import uuid
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from uvicorn.config import LOGGING_CONFIG
 
 from loan_agent import logs
 from loan_agent.api import app, errors, limits, request_log
@@ -93,28 +96,80 @@ def test_body_query_and_api_key_never_reach_the_log(captured):
     assert "query-marker" not in captured.raw
 
 
-def test_an_api_key_inside_an_unhandled_exception_never_reaches_the_log(captured):
-    """처리되지 않은 예외의 traceback에 키가 섞여 있어도 로그에는 남지 않아야 한다.
+def _app_raising_an_error_that_carries_a_key() -> FastAPI:
+    """형식이 틀린 키로 요청을 만들 때 제공자 SDK가 던지는 연쇄 예외를 흉내 낸다.
 
-    예외 처리기는 traceback 전체를 기록한다. 끝에 줄바꿈이 붙은 키처럼 형식이 틀린 키로 HTTP
-    요청을 만들면 전송 계층 오류 메시지에 키 원문이 들어가고, 제공자 SDK는 그 오류를 감싸 다시
-    던지므로 연쇄 traceback에 키가 남는다. 처리기에 닿으면 그대로 서버 로그에 기록됐다.
+    끝에 줄바꿈이 붙은 키로 HTTP 요청을 만들면 전송 계층 오류 메시지에 키 원문이 들어가고,
+    제공자 SDK는 그 오류를 감싸 다시 던지므로 연쇄 traceback에 키가 남는다.
     """
-    key = "sk-proj-LEAKCHECK0123456789abcdef"
     probe = FastAPI()
     errors.install(probe)
 
     @probe.get("/boom")
     def boom():
         try:
-            raise ValueError(f"Illegal header value b'Bearer {key}\\n'")
+            raise ValueError("Illegal header value b'Bearer sk-proj-LEAKCHECK0123456789abcdef\\n'")
         except ValueError as transport_error:
             raise ConnectionError("Connection error.") from transport_error
 
-    TestClient(probe, raise_server_exceptions=False).get("/boom")
+    return probe
+
+
+@pytest.fixture()
+def uvicorn_stderr():
+    """uvicorn 기본 로그 설정이 먼저 걸리고 앱이 뒤에 로그를 설정하는 실제 순서를 만든다.
+
+    uvicorn은 앱 모듈을 import하기 전에 `dictConfig`로 자기 핸들러를 건다. 그 핸들러가 쓰는
+    표준 오류 자리에 버퍼를 넣고, 끝나면 uvicorn 로거를 원래 상태로 되돌린다.
+    """
+    names = ("uvicorn", "uvicorn.error", "uvicorn.access")
+    saved = {}
+    for name in names:
+        logger = logging.getLogger(name)
+        saved[name] = (list(logger.handlers), logger.propagate, logger.level)
+    stream = io.StringIO()
+    config = copy.deepcopy(LOGGING_CONFIG)
+    config["handlers"]["default"]["stream"] = stream
+    logging.config.dictConfig(config)
+    logs.configure(stream=io.StringIO())
+    yield stream
+    for name, (handlers, propagate, level) in saved.items():
+        logger = logging.getLogger(name)
+        logger.handlers = handlers
+        logger.propagate = propagate
+        logger.setLevel(level)
+    logs.configure()
+
+
+def test_an_api_key_inside_an_unhandled_exception_never_reaches_the_app_log(captured):
+    """처리되지 않은 예외의 traceback에 키가 섞여 있어도 앱 처리기가 남기는 JSON 줄에는 없어야 한다.
+
+    이 테스트는 앱 처리기의 기록만 본다. `raise_server_exceptions=False`는 처리기가 응답을 만든
+    뒤 Starlette가 다시 던지는 예외를 삼키므로, 실제 서버에서 uvicorn이 그 예외를 한 번 더 쓰는
+    기록은 여기서 보이지 않는다. 그 경로는 아래 테스트가 따로 본다.
+    """
+    TestClient(_app_raising_an_error_that_carries_a_key(), raise_server_exceptions=False).get("/boom")
 
     assert "unhandled error" in captured.raw
     assert "LEAKCHECK" not in captured.raw
+
+
+def test_an_api_key_in_the_traceback_uvicorn_writes_after_the_rethrow_is_masked(uvicorn_stderr):
+    """예외 처리기가 응답을 만든 뒤에도 예외는 서버까지 올라가고, uvicorn이 traceback을 한 번 더 쓴다.
+
+    앱 로거의 핸들러만 가리면 uvicorn이 자기 로거와 포매터로 쓰는 이 기록에는 키 원문이 남는다.
+    예외가 실제로 다시 던져지는지 확인한 뒤, uvicorn의 HTTP 프로토콜 구현이 쓰는 호출 그대로
+    `uvicorn.error` 로거에 기록한다.
+    """
+    with pytest.raises(ConnectionError) as rethrown:
+        TestClient(_app_raising_an_error_that_carries_a_key()).get("/boom")
+
+    logging.getLogger("uvicorn.error").error("Exception in ASGI application\n", exc_info=rethrown.value)
+
+    written = uvicorn_stderr.getvalue()
+    assert "Exception in ASGI application" in written
+    assert "Illegal header value" in written
+    assert "LEAKCHECK" not in written
 
 
 def test_formatter_masks_api_key_shaped_values_in_messages(captured):
@@ -122,6 +177,30 @@ def test_formatter_masks_api_key_shaped_values_in_messages(captured):
     logging.getLogger("loan_agent.test_masking").error("provider rejected %s", "sk-LEAKCHECK0123456789")
 
     assert "provider rejected" in captured.raw
+    assert "LEAKCHECK" not in captured.raw
+
+
+def test_masking_leaves_words_that_merely_end_in_sk_intact(captured):
+    """키 형태는 단어 경계에서 시작해야 한다. 경계가 없으면 `risk-`·`task-`로 끝나는 일반 문구가 가려진다."""
+    phrases = ["risk-assessment-pipeline started", "task-scheduler-backlog", "disk-usage-12345678"]
+    logger = logging.getLogger("loan_agent.test_masking")
+    for phrase in phrases:
+        logger.info(phrase)
+
+    assert [line["message"] for line in captured.lines()] == phrases
+
+
+def test_a_key_right_after_a_line_break_is_still_masked(captured):
+    """경계는 원래 문자열에서 판단한다. 줄바꿈 바로 뒤의 키와, 이스케이프된 `\\n` 바로 뒤의 키를 둘 다 가린다.
+
+    JSON으로 직렬화한 줄이나 `repr` 문자열에서는 줄바꿈이 `\\` `n` 두 글자가 되어 키가 영문자 뒤에
+    붙은 것처럼 보인다. 그 상태에서 경계를 걸면 이 키를 놓친다.
+    """
+    logger = logging.getLogger("loan_agent.test_masking")
+    logger.error("first line\nsk-LEAKCHECK0123456789")
+    logger.error("header b'\\nsk-LEAKCHECK9876543210'")
+
+    assert len(captured.lines()) == 2
     assert "LEAKCHECK" not in captured.raw
 
 
