@@ -217,7 +217,7 @@ curl http://localhost:8000/api/v1/parsing-preview \
 
 Eval 표현은 `parse_accuracy`, `verdict_consistency`, `disclaimer_present`, `recommendation_consistency`, `numeric_grounding`, `conditional_language`, `passed` 불리언과 `detail` 객체다.
 
-**현재 직렬화의 차이:** 동기 POST는 완료 후에도 `run_payload(run)`만 호출하므로 `eval_result=null`이다. Eval 상세는 실행 이력 GET 또는 심사 상세 GET에서 조인해 반환한다. 또한 설명 실행 경로의 `parse_accuracy=true`는 독립 파싱 측정치가 아니다. [데이터 흐름](데이터_흐름.md#저장-여부와-실패-결과)의 적용 범위를 참고한다.
+**채점 결과:** 동기 POST 응답도 저장된 Eval을 함께 반환하며, 같은 실행을 실행 이력 GET이나 심사 상세 GET으로 읽은 값과 같다. 키 없이 만든 PENDING 실행은 아직 채점 전이라 `eval_result=null`이다. 또한 설명 실행 경로의 `parse_accuracy=true`는 독립 파싱 측정치가 아니다. [데이터 흐름](데이터_흐름.md#저장-여부와-실패-결과)의 적용 범위를 참고한다.
 
 클라이언트는 HTTP 코드 다음에 업무 상태를 확인한다.
 

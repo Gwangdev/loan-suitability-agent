@@ -131,6 +131,54 @@ def test_visitor_key_claims_existing_pending_and_returns_completed_run(api_db, m
     assert response.json()["status"] == "COMPLETED"
 
 
+def test_visitor_key_response_carries_the_stored_eval_like_the_history_does(api_db, monkeypatch):
+    """방문자 키 실행의 응답에도 채점 결과가 실려야 한다. 같은 실행을 이력으로 읽은 값과 같아야 한다.
+
+    동기 실행 응답은 실행 행만 직렬화해 채점 결과가 늘 비어 있었다. 그래서 검사를 통과하지 못한
+    안내문의 사유를 화면이 보여 줄 수 없었고, 같은 실행을 이력 조회로 읽으면 채점 결과가 나와
+    두 경로가 같은 표현을 준다는 명세와도 어긋났다.
+    """
+    from loan_agent import worker
+
+    monkeypatch.setattr(
+        worker,
+        "generate_explanation",
+        lambda *_args, **_kwargs: worker.Explanation(
+            text="검토 결과 안내문(데모 기준).",
+            model_name="test-model",
+            prompt_version="test-prompt",
+            input_tokens=1,
+            output_tokens=1,
+        ),
+    )
+    failing = {"추천정합성", "수치근거"}
+    monkeypatch.setattr(
+        worker,
+        "score_explanation",
+        lambda *_args: worker.Score(
+            checks={name: name not in failing for name in worker.EVAL_METRICS},
+            passed=False,
+            detail={"추천정합성": "대역 사유"},
+        ),
+    )
+    created = _assessment(api_db)
+
+    response = client.post(
+        f"/api/v1/assessments/{created['assessment_id']}/explanation-runs",
+        headers={"X-OpenAI-API-Key": "visitor-test-key"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "REVIEW_REQUIRED"
+    assert body["eval_result"] is not None
+    assert body["eval_result"]["passed"] is False
+    assert body["eval_result"]["recommendation_consistency"] is False
+    history = client.get(f"/api/v1/assessments/{created['assessment_id']}/explanation-runs").json()["items"]
+    same_run = next(item for item in history if item["id"] == body["id"])
+    assert body["eval_result"] == same_run["eval_result"]
+
+
 def test_visitor_key_rejects_a_fresh_running_run(api_db):
     created = _assessment(api_db)
     with api_db.begin() as conn:

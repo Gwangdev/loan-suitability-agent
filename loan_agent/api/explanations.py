@@ -85,7 +85,9 @@ def regenerate_explanation(
             raise HTTPException(status_code=503, detail="안내문 제공자가 응답하지 않았습니다.") from exc
         with db_engine.get_sessionmaker()() as session:
             run = session.get(ExplanationRun, run_id)
-            payload = run_payload(run)
+            # 채점 결과를 함께 싣는다. 실행 행만 직렬화하던 때는 이 응답의 eval_result가 늘 비어,
+            # 같은 실행을 이력으로 읽은 표현과 달랐고 화면이 검사 미통과 사유를 보여 줄 수 없었다.
+            payload = run_payload(run, session.get(EvalResult, run_id))
         response.status_code = status.HTTP_200_OK
         return payload
 
