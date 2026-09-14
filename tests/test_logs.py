@@ -204,6 +204,38 @@ def test_a_key_right_after_a_line_break_is_still_masked(captured):
     assert "LEAKCHECK" not in captured.raw
 
 
+def test_a_key_right_after_a_percent_escape_is_still_masked(captured):
+    """URL에 실린 문자열은 구분 기호가 `%3D`·`%20`처럼 인코딩되어, 키가 영숫자 바로 뒤에 붙은 것처럼 보인다."""
+    logger = logging.getLogger("loan_agent.test_masking")
+    logger.error("GET /x?q=api_key%3Dsk-proj-LEAKCHECK0123456789")
+    logger.error("header Bearer%20sk-proj-LEAKCHECK9876543210")
+
+    assert len(captured.lines()) == 2
+    assert "LEAKCHECK" not in captured.raw
+
+
+def test_a_malformed_log_call_neither_raises_nor_leaks_a_key(captured, capsys):
+    """형식 문자열과 인자가 맞지 않는 호출도 호출한 코드로 예외를 던지지 않고, 인자의 키를 흘리지 않는다.
+
+    `logging`은 형식 오류를 기록 단계에서 잡아 표준 오류에 보고하고 넘어간다. 가림 필터는 그보다 앞서
+    메시지를 만들어 보므로, 거기서 난 예외를 놓치면 로그 한 줄 때문에 요청 처리가 실패한다. 표준 보고는
+    인자를 그대로 찍으므로 넘겨 버리면 키가 표준 오류로 샌다.
+    """
+    class Unprintable:
+        def __str__(self):
+            raise RuntimeError("cannot render")
+
+        __repr__ = __str__
+
+    logger = logging.getLogger("loan_agent.test_masking")
+    logger.error("%(missing)s", {"present": "sk-proj-LEAKCHECK0123456789"})
+    logger.error("value %s", Unprintable())
+
+    assert len(captured.lines()) == 2
+    assert "LEAKCHECK" not in captured.raw
+    assert "LEAKCHECK" not in capsys.readouterr().err
+
+
 def test_unhandled_error_is_logged_under_the_request_correlation_id(captured):
     """예외 처리기는 미들웨어 바깥에서 돌지만 같은 식별자로 기록해야 둘을 이을 수 있다."""
     local = FastAPI()

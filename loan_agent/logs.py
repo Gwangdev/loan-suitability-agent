@@ -43,9 +43,12 @@ _correlation_id: contextvars.ContextVar[uuid.UUID | None] = contextvars.ContextV
 
 # OpenAI 키 형태. `sk-proj-…`처럼 접두 뒤에 영숫자·`-`·`_`가 이어진다.
 # 왼쪽 경계가 없으면 `risk-assessment`·`task-scheduler`처럼 단어 끝의 `sk-`까지 가린다.
-# `repr`로 옮긴 문자열에서는 줄바꿈이 `\` `n` 두 글자가 되어 뒤따르는 키가 영문자 뒤에 붙은
-# 것처럼 보이므로, 이스케이프 문자 바로 뒤도 경계로 인정한다.
-_API_KEY_SHAPED = re.compile(r"(?:(?<![A-Za-z0-9])|(?<=\\[nrt]))sk-[A-Za-z0-9_\-]{8,}")
+# 인코딩된 문자열에서는 구분 기호가 영숫자로 바뀌어 뒤따르는 키가 영숫자 뒤에 붙은 것처럼 보인다.
+# `repr`의 줄바꿈은 `\` `n` 두 글자가 되고, URL의 `=`·공백은 `%3D`·`%20`이 되므로 이 둘 바로 뒤도
+# 경계로 인정한다.
+_API_KEY_SHAPED = re.compile(
+    r"(?:(?<![A-Za-z0-9])|(?<=\\[nrt])|(?<=%[0-9A-Fa-f]{2}))sk-[A-Za-z0-9_\-]{8,}"
+)
 _MASKED_KEY = "sk-***"
 
 # `correlation_id`는 필터가 따로 다루므로 목록에서 뺀다.
@@ -87,6 +90,14 @@ def _mask(text: str) -> str:
     return _API_KEY_SHAPED.sub(_MASKED_KEY, text)
 
 
+def _printable(value) -> str:
+    """값을 문자열로 옮기되, 옮기다 예외가 나면 형식 이름만 남긴다."""
+    try:
+        return str(value)
+    except Exception:
+        return f"<unprintable {type(value).__name__}>"
+
+
 class _MaskApiKeys(logging.Filter):
     """레코드의 메시지·예외·스택 문자열에서 키 형태를 가린다.
 
@@ -94,15 +105,18 @@ class _MaskApiKeys(logging.Filter):
     traceback을 다시 만들지 않으므로, 뒤에서 어떤 포매터가 쓰든 가린 문자열을 쓴다. 메시지는 키가
     들어 있을 때만 바꾼다. uvicorn 접근 로그 포매터처럼 `args`를 튜플로 읽는 포매터가 있어,
     바꿀 필요가 없는 레코드는 그대로 둔다.
+
+    핸들러 필터는 `emit`의 오류 처리보다 앞서 돈다. 여기서 메시지를 만들다 난 예외를 놓치면 형식이
+    틀린 로그 호출 하나가 호출한 코드로 예외를 던져 요청 처리를 실패시킨다. 그렇다고 레코드를 그대로
+    넘기면 `logging`의 오류 보고가 인자를 가리지 않고 표준 오류에 찍는다. 그래서 어떤 예외든 잡아
+    형식 문자열과 인자를 각각 안전하게 문자열로 옮긴 뒤 가려서 메시지로 쓴다.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
-        except (TypeError, ValueError):
-            # 인자가 형식 문자열과 맞지 않는 호출이다. logging은 오류 보고에 msg와 args를 그대로
-            # 찍으므로, 합친 문자열을 가려 그 보고에도 키가 나가지 않게 한다.
-            message = f"{record.msg} {record.args}"
+        except Exception:
+            message = f"{_printable(record.msg)} {_printable(record.args)}"
             record.msg, record.args = _mask(message), None
         else:
             masked = _mask(message)
