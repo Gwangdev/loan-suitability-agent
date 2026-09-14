@@ -99,6 +99,106 @@ def test_visitor_key_explanation_runs_inside_a_progress_indicator(monkeypatch):
     assert payload["explanation_text"] == "안내문"
 
 
+def test_withheld_message_names_failed_metrics_in_korean_without_the_overall_flag():
+    """검사를 통과하지 못한 이유는 한글 지표명으로만 알려 준다.
+
+    거짓인 값을 모두 미달 지표로 세면 전체 통과 여부(`passed`)까지 지표처럼 나오고, API의 영문
+    필드명이 그대로 화면에 나간다. API는 영문, 화면은 한글이라는 경계를 화면 쪽에서 지킨다.
+    """
+    payload = {
+        "status": "REVIEW_REQUIRED",
+        "eval_result": {
+            "parse_accuracy": True,
+            "verdict_consistency": True,
+            "disclaimer_present": True,
+            "recommendation_consistency": False,
+            "numeric_grounding": False,
+            "conditional_language": True,
+            "passed": False,
+            "detail": {"추천정합성": "사유"},
+        },
+    }
+
+    message = app._withheld_message(payload)
+
+    assert "추천정합성" in message and "수치근거" in message
+    assert "passed" not in message
+    assert "recommendation_consistency" not in message and "numeric_grounding" not in message
+
+
+def _status_error(code, headers=None):
+    import httpx
+
+    request = httpx.Request("POST", "http://api.test/api/v1/assessments/x/explanation-runs")
+    response = httpx.Response(code, headers=headers or {}, request=request)
+    return httpx.HTTPStatusError(str(code), request=request, response=response)
+
+
+def test_explanation_error_message_tells_timeout_conflict_and_rate_limit_apart():
+    """실패 사유가 다르면 방문자가 할 일도 다르므로 안내를 나눈다.
+
+    모든 예외를 한 문구로 받으면 제공자 시간 초과, 이미 진행 중인 실행, 요청 상한을 구분할 수
+    없고, 서버 상한보다 클라이언트 대기를 길게 잡아 503 안내를 받으려던 설계가 화면에서 쓰이지 않는다.
+    """
+    timeout = app._explanation_error_message(_status_error(503))
+    conflict = app._explanation_error_message(_status_error(409))
+    limited = app._explanation_error_message(_status_error(429, {"Retry-After": "120"}))
+    generic = app._explanation_error_message(RuntimeError("boom"))
+
+    assert len({timeout, conflict, limited, generic}) == 4
+    assert "120" in limited
+
+
+def test_an_explanation_attempt_counts_toward_the_cap_and_cooldown_even_when_it_fails(monkeypatch):
+    """요청을 보낸 시도는 결과와 무관하게 세션 횟수와 쿨다운에 반영한다.
+
+    성공했을 때만 세면, 모델 호출이 실제로 나간 뒤 시간 초과로 끝난 시도는 횟수에도 쿨다운에도
+    잡히지 않아 곧바로 다시 실행할 수 있었다. 요청을 보내기 전에 기록한다.
+    """
+    import httpx
+
+    class Spinner:
+        def __init__(self, _text):
+            pass
+
+        def __enter__(self):
+            return None
+
+        def __exit__(self, *exc):
+            return False
+
+    class Response:
+        def __init__(self, body, error=None):
+            self._body, self._error = body, error
+
+        def raise_for_status(self):
+            if self._error:
+                raise self._error
+
+        def json(self):
+            return self._body
+
+    def post(url, *, json=None, headers, timeout):
+        if url.endswith("/explanation-runs"):
+            return Response({}, error=_status_error(503))
+        return Response({"assessment_id": "a"})
+
+    monkeypatch.setattr(app.st, "spinner", Spinner)
+    monkeypatch.setattr(app.httpx, "post", post)
+    attempts = {"run_count": 2}
+    customer = {"월소득": 7_000_000, "부채": 0, "신용등급": 1, "희망금액": 30_000_000, "직장유형": "정규직", "담보보유": False}
+
+    try:
+        app._run_explanation(customer, "sk-visitor", attempts=attempts, now=123.0)
+    except httpx.HTTPStatusError:
+        pass
+    else:
+        raise AssertionError("503 응답이 예외로 올라오지 않았다")
+
+    assert attempts["run_count"] == 3
+    assert attempts["last_run_ts"] == 123.0
+
+
 def test_usage_cost_uses_input_and_output_token_rates():
     cost = app._usage_cost_usd({"prompt_tokens": 1_000, "completion_tokens": 500})
 

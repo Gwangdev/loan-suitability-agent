@@ -170,11 +170,26 @@ def _render_ineligible_reasons(reasons: dict):
             st.markdown(f"- {r}")
 
 
+# API의 채점 필드명(영문)을 화면의 지표명(한글)으로 옮긴다. 이름은 워커가 채점 결과를 저장할 때
+# 쓰는 대응과 같다.
+EVAL_FIELD_LABELS = {
+    "parse_accuracy": "파싱정확도",
+    "verdict_consistency": "판정정합성",
+    "disclaimer_present": "디스클레이머",
+    "recommendation_consistency": "추천정합성",
+    "numeric_grounding": "수치근거",
+    "conditional_language": "조건부표현",
+}
+
+
 def _withheld_message(payload: dict) -> str:
     """안내문이 공개되지 않은 이유를 상태별로 알려준다."""
     status = payload.get("status")
     if status == "REVIEW_REQUIRED":
-        failed = [k for k, v in (payload.get("eval_result") or {}).items() if v is False]
+        # 거짓인 값을 모두 세던 때는 전체 통과 여부(passed)까지 미달 지표로 나오고 영문 필드명이
+        # 화면에 그대로 나갔다. 지표 여섯 개만 보고, 화면에는 한글 이름으로 쓴다.
+        result = payload.get("eval_result") or {}
+        failed = [label for field, label in EVAL_FIELD_LABELS.items() if result.get(field) is False]
         detail = f" (미달 지표: {', '.join(failed)})" if failed else ""
         return f"생성된 안내문이 품질 검사를 통과하지 못해 공개하지 않았습니다{detail}. 다시 시도해보세요."
     if status == "FAILED":
@@ -494,13 +509,38 @@ def _load_demo(index: int):
         st.session_state.last_screen = None  # 데모는 픽스처 파싱에서 screen 재계산
 
 
-def _run_explanation(customer: dict, api_key: str):
+def _explanation_error_message(exc: Exception) -> str:
+    """안내문 실행이 실패한 사유를 방문자가 다음에 할 일로 옮긴다.
+
+    모든 예외를 한 문구로 받던 때는 제공자 시간 초과, 이미 진행 중인 실행, 요청 상한을 구분할 수
+    없었고, 서버 상한보다 클라이언트 대기를 길게 잡아 503을 받아 오는 이유도 화면에서 쓰이지 않았다.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code == 503:
+            return "안내문 제공자가 제한 시간 안에 응답하지 않았습니다. 잠시 후 다시 시도해주세요."
+        if code == 409:
+            return "이 심사의 안내문 생성이 이미 진행 중입니다. 잠시 후 다시 시도해주세요."
+        if code == 429:
+            retry = exc.response.headers.get("Retry-After", "")
+            wait = f"{retry}초 후" if retry.isdigit() else "잠시 후"
+            return f"요청이 많아 실행이 잠시 제한되었습니다. {wait} 다시 시도해주세요."
+    return "⚠️ AI 안내문 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+
+
+def _run_explanation(customer: dict, api_key: str, *, attempts=None, now: float | None = None):
     """방문자 키로 심사를 제출하고 안내문 실행이 끝날 때까지 기다린다.
 
     이 경로는 동기 실행이라 버튼을 누른 뒤 결과가 올 때까지 화면이 그대로였고, 방문자는 버튼이
     눌렸는지조차 알 수 없었다. 기다리는 구간 전체를 진행 표시로 감싸, 요청이 나가 있는 동안에는
     표시가 떠 있게 한다.
+
+    시도 횟수와 쿨다운 시각은 요청을 보내기 전에 기록한다. 성공했을 때만 세던 때는 모델 호출이
+    실제로 나간 뒤 시간 초과로 끝난 시도가 세션 상한과 쿨다운에 잡히지 않아 곧바로 다시 실행할 수 있었다.
     """
+    if attempts is not None:
+        attempts["run_count"] = attempts.get("run_count", 0) + 1
+        attempts["last_run_ts"] = now
     with st.spinner("AI 안내문을 생성하는 중입니다. 완료될 때까지 기다려 주세요."):
         assessment = _submit_assessment(customer)
         run = httpx.post(
@@ -693,7 +733,7 @@ def main():
             st.warning(f"연속 실행을 제한합니다. {COOLDOWN_SEC - int(now - last_ts)}초 후 다시 시도해주세요.")
         else:
             try:
-                assessment, payload = _run_explanation(customer, api_key)
+                assessment, payload = _run_explanation(customer, api_key, attempts=st.session_state, now=now)
                 # Eval을 통과하지 못한 안내문은 저장되지 않으므로(ADR-007) 본문이
                 # 비어 온다. 그대로 렌더하면 방문자는 토큰을 쓰고도 아무 설명 없는
                 # 빈 화면을 본다 — 검증에서 걸렸다는 사실 자체를 알려야 한다.
@@ -711,10 +751,8 @@ def main():
                 st.session_state.last_screen = _screen_from_assessment(assessment)
                 st.session_state.last_input = _customer_to_nl(customer)
                 st.session_state.is_demo = False
-                st.session_state.run_count = run_count + 1
-                st.session_state.last_run_ts = now
-            except Exception:
-                st.error("⚠️ AI 안내문 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
+            except Exception as exc:
+                st.error(_explanation_error_message(exc))
 
     if st.session_state.get("last_result"):
         # 사전 녹화 결과일 때 명확히 고지(실제 실행과 구분).
