@@ -10,3 +10,9 @@ base = "light"
 
 [browser]
 gatherUsageStats = false
+
+# 기본값 full이면 화면 코드에서 잡지 않은 예외가 서버 파일 경로·코드 줄이 담긴 traceback째
+# 화면에 뜨고, 같은 내용이 방문자의 개발자도구에서도 보였다. none으로 두면 브라우저에는 일반
+# 오류 문구만 보이고, 예외 타입·메시지·traceback은 서버 콘솔(컨테이너 로그)에만 남는다.
+[client]
+showErrorDetails = "none"
