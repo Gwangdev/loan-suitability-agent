@@ -199,6 +199,47 @@ def test_an_explanation_attempt_counts_toward_the_cap_and_cooldown_even_when_it_
     assert attempts["last_run_ts"] == 123.0
 
 
+def test_a_failed_assessment_submission_spends_no_attempt_and_reads_like_the_deterministic_path(monkeypatch):
+    """심사 제출에서 끝난 시도는 모델 호출이 나가지 않았으므로 세션 횟수와 쿨다운을 쓰지 않는다.
+
+    제출 전에 기록하던 때는 심사 서비스에 닿지 못한 실패까지 10회 중 한 번을 쓰고 「AI 안내문 생성 중
+    오류」로 안내했다. 같은 실패를 결정적 심사 버튼은 「심사 서비스에 연결할 수 없습니다」로 안내한다.
+    """
+    import httpx
+
+    class Spinner:
+        def __init__(self, _text):
+            pass
+
+        def __enter__(self):
+            return None
+
+        def __exit__(self, *exc):
+            return False
+
+    calls = []
+
+    def post(url, *, json=None, headers, timeout):
+        calls.append(url)
+        raise httpx.ConnectError("unreachable", request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(app.st, "spinner", Spinner)
+    monkeypatch.setattr(app.httpx, "post", post)
+    attempts = {"run_count": 2, "last_run_ts": 50.0}
+    customer = {"월소득": 7_000_000, "부채": 0, "신용등급": 1, "희망금액": 30_000_000, "직장유형": "정규직", "담보보유": False}
+
+    try:
+        app._run_explanation(customer, "sk-visitor", attempts=attempts, now=123.0)
+    except Exception as exc:
+        message = app._explanation_error_message(exc)
+    else:
+        raise AssertionError("제출 실패가 예외로 올라오지 않았다")
+
+    assert [url.rsplit("/", 1)[-1] for url in calls] == ["assessments"]
+    assert attempts == {"run_count": 2, "last_run_ts": 50.0}
+    assert message == app.ASSESSMENT_UNAVAILABLE_MESSAGE
+
+
 def test_usage_cost_uses_input_and_output_token_rates():
     cost = app._usage_cost_usd({"prompt_tokens": 1_000, "completion_tokens": 500})
 

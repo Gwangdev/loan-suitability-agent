@@ -509,12 +509,22 @@ def _load_demo(index: int):
         st.session_state.last_screen = None  # 데모는 픽스처 파싱에서 screen 재계산
 
 
+ASSESSMENT_UNAVAILABLE_MESSAGE = "심사 서비스에 연결할 수 없습니다. 잠시 후 다시 시도해주세요."
+
+
+class AssessmentSubmitError(Exception):
+    """안내문 경로에서 심사 제출이 실패해 안내문 요청을 보내지 못했다."""
+
+
 def _explanation_error_message(exc: Exception) -> str:
     """안내문 실행이 실패한 사유를 방문자가 다음에 할 일로 옮긴다.
 
     모든 예외를 한 문구로 받던 때는 제공자 시간 초과, 이미 진행 중인 실행, 요청 상한을 구분할 수
     없었고, 서버 상한보다 클라이언트 대기를 길게 잡아 503을 받아 오는 이유도 화면에서 쓰이지 않았다.
+    심사 제출 단계의 실패는 결정적 심사 버튼이 겪는 실패와 같으므로 같은 문구로 안내한다.
     """
+    if isinstance(exc, AssessmentSubmitError):
+        return ASSESSMENT_UNAVAILABLE_MESSAGE
     if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
         if code == 503:
@@ -535,14 +545,19 @@ def _run_explanation(customer: dict, api_key: str, *, attempts=None, now: float 
     눌렸는지조차 알 수 없었다. 기다리는 구간 전체를 진행 표시로 감싸, 요청이 나가 있는 동안에는
     표시가 떠 있게 한다.
 
-    시도 횟수와 쿨다운 시각은 요청을 보내기 전에 기록한다. 성공했을 때만 세던 때는 모델 호출이
-    실제로 나간 뒤 시간 초과로 끝난 시도가 세션 상한과 쿨다운에 잡히지 않아 곧바로 다시 실행할 수 있었다.
+    시도 횟수와 쿨다운 시각은 심사 제출이 성공한 뒤, 안내문 요청을 보내기 직전에 기록한다. 성공했을
+    때만 세던 때는 모델 호출이 실제로 나간 뒤 시간 초과로 끝난 시도가 세션 상한과 쿨다운에 잡히지 않아
+    곧바로 다시 실행할 수 있었다. 반대로 제출 전에 기록하면 모델 호출이 나가지 않은 제출 실패까지
+    세션 10회 중 한 번을 쓴다. 제출 실패는 `AssessmentSubmitError`로 올려 결정적 심사와 같은 안내를 받게 한다.
     """
-    if attempts is not None:
-        attempts["run_count"] = attempts.get("run_count", 0) + 1
-        attempts["last_run_ts"] = now
     with st.spinner("AI 안내문을 생성하는 중입니다. 완료될 때까지 기다려 주세요."):
-        assessment = _submit_assessment(customer)
+        try:
+            assessment = _submit_assessment(customer)
+        except httpx.HTTPError as exc:
+            raise AssessmentSubmitError from exc
+        if attempts is not None:
+            attempts["run_count"] = attempts.get("run_count", 0) + 1
+            attempts["last_run_ts"] = now
         run = httpx.post(
             f"{API_BASE_URL}/api/v1/assessments/{assessment['assessment_id']}/explanation-runs",
             headers={"X-OpenAI-API-Key": api_key},
@@ -721,7 +736,7 @@ def main():
             st.session_state.last_input = _customer_to_nl(customer)
             st.session_state.is_demo = False
         except httpx.HTTPError:
-            st.error("심사 서비스에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
+            st.error(ASSESSMENT_UNAVAILABLE_MESSAGE)
 
     # ④-b AI 안내문까지 (키 필요) — 심사가 만든 PENDING 행을 app이 동기 실행한다.
     if run_clicked and not missing:
