@@ -183,6 +183,28 @@
     text-align: left;
   }
 
+  /* ── 데모 영상 ──────────────────────────────────────── */
+  /* 첫 화면 바로 아래에 둬서 스크롤 없이 동작부터 볼 수 있게 한다. 자동재생하지 않고
+     메타데이터만 미리 받는다 — 방문자마다 영상 전체를 받게 하면 읽기만 하려는 사람에게도
+     전송량이 붙는다. */
+  .demo-video { background: var(--color-canvas); padding: 0 0 var(--space-8); text-align: center; }
+  .demo-video figure { margin: 0; }
+  .demo-video video {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--radius-lg);
+    background: var(--color-parchment);
+  }
+  .demo-video figcaption {
+    max-width: 40em;
+    margin: var(--space-4) auto 0;
+    font-size: var(--text-base);
+    line-height: var(--leading-normal);
+    color: var(--color-ink-muted-48);
+  }
+
   /* ── 수치 띠 ────────────────────────────────────────── */
   .stats {
     background: var(--color-parchment);
@@ -388,6 +410,18 @@
     <p class="note">합성 데이터로 동작하는 교육용 데모입니다. 실제 대출 심사를 고려할 시 법규 검토를 위한 RAG, 고객데이터 연결 등의 추가 확장이 필요합니다.</p>
   </div>
 </header>
+
+<section class="demo-video" aria-label="데모 영상">
+  <div class="wrap-wide">
+    <figure>
+      <video controls preload="metadata" playsinline poster="media/loan-demo-poster.jpg" width="1280" height="800">
+        <source src="media/loan-demo.mp4" type="video/mp4">
+        브라우저가 영상을 재생하지 못하면 <a href="media/loan-demo.mp4">영상 파일</a>을 직접 여세요.
+      </video>
+      <figcaption>자연어 입력을 규칙 파서가 폼으로 옮기고, 사람이 금액을 확인한 뒤 결정적 심사가 판정·DSR·추천을 계산합니다. 이어서 LLM이 확정된 결과로 안내문을 만듭니다. 영상의 API 키는 예시 문자열이며, 녹화 환경에서는 실제 키로 바꿔 실행했습니다. 합성 데이터만 사용합니다.</figcaption>
+    </figure>
+  </div>
+</section>
 
 <section class="stats" aria-label="검증 수치">
   <div class="wrap-wide">
