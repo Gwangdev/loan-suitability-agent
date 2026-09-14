@@ -1,7 +1,8 @@
 # 런타임(앱·API) 의존성 — Streamlit Cloud / Docker가 이 파일을 설치한다.
 #   노트북·테스트 등 개발 도구는 requirements-dev.txt 참고(이 파일을 포함).
 crewai[tools]>=1.15,<2.0
-python-dotenv>=1.0
+# 1.2.0부터 PYTHON_DOTENV_DISABLED로 제3자의 load_dotenv()를 끌 수 있다(loan_agent/llm.py).
+python-dotenv>=1.2
 streamlit>=1.60
 fastapi>=0.110
 uvicorn>=0.27

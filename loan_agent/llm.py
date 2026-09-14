@@ -14,10 +14,20 @@ Agent·Task를 캐시하지 않는다. 방문자마다 키가 다르므로 공�
 생긴다. 키는 인자로만 흐르고 `os.environ`에 쓰지 않는다(금지 자동화 행위 7).
 """
 import json
+import os
 import re
 
 from loan_agent import settings
 from loan_agent.core import DISCLAIMER
+
+# crewai는 import될 때 모듈 수준에서 `load_dotenv()`를 부른다. python-dotenv는 `python -c`·REPL·
+# 노트북·디버거로 띄운 프로세스에서 현재 작업 폴더의 `.env`를 찾으므로, 그렇게 띄운 프로세스가 여기서
+# crewai를 처음 불러오면 `.env`에 둔 서버 키가 프로세스 환경변수에 올라간다. 키를 인자로만 넘기는
+# 규칙이 제3자 import에서 무너지는 경로다. python-dotenv가 제공하는 스위치로 `load_dotenv()`만 끈다.
+# 설정 모듈이 쓰는 `dotenv_values`는 이 스위치를 보지 않으므로 우리 `.env` 읽기는 그대로다. 값은 키가
+# 아닌 스위치이고, 실행 환경에 이미 명시된 값이 있으면 덮지 않는다. crewai를 불러오는 곳은 이 모듈의
+# 함수들뿐이므로 그보다 먼저 실행되는 여기서 한 번 켠다.
+os.environ.setdefault("PYTHON_DOTENV_DISABLED", "1")
 
 
 # ---------------------------------------------------------------------------
