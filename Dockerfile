@@ -16,8 +16,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # 의존성을 코드보다 먼저 설치해 소스만 바뀌는 빌드에서 레이어 캐시를 재사용한다.
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+# requirements.txt는 범위만 적어 빌드할 때마다 그 시점의 최신 버전이 풀렸고, 재빌드 한 번에 테스트하지
+# 않은 버전이 운영에 올라갔다. 그래서 버전과 해시를 고정한 잠금 파일로만 설치한다. 해시가 다르거나 빠진
+# 패키지가 있으면 설치가 멈추고, 잠금이 전체 의존성을 담으므로 의존성을 다시 풀지 않는다.
+COPY requirements.lock .
+RUN pip install --require-hashes --no-deps -r requirements.lock
 
 # core.BASE_DIR가 /app을 기준으로 데이터를 찾으므로 CSV를 애플리케이션 루트에 둔다.
 COPY loan_agent/ ./loan_agent/

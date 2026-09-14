@@ -1,0 +1,12 @@
+# 의존성 감사에서 제외하는 권고. 게이트(X3)와 CI가 함께 읽는다.
+# 형식: 권고 ID, 공백, `#` 뒤에 사유. 사유가 없는 줄은 둘 다 적용하지 않는다.
+# 제외해도 감사는 매번 돌고, 게이트는 제외한 권고와 사유를 경고로 다시 보여 준다.
+#
+# chromadb 1.1.1 — crewai가 필수로 요구해 함께 설치된다. 네 권고 모두 수정 버전이 없고, 전부 실행 중인
+# Chroma 서버의 HTTP API나 권한 제공자를 전제로 한다. 이 서비스는 Chroma 서버를 띄우지 않고(서비스는
+# ui·app·postgres·caddy, 공개 프록시는 화면과 정적 사이트뿐) crewai import가 라이브러리로 올릴 뿐이다.
+# Chroma 서버를 도입하거나 crewai가 chromadb 요구를 바꾸면 이 네 줄을 지우고 다시 판단한다.
+PYSEC-2026-311   # chromadb 컬렉션 API 인증 전 코드 주입(CVE-2026-45829) — Chroma 서버를 운영하지 않아 해당 API가 없다
+PYSEC-2026-3814  # chromadb 컬렉션 API 인증 후 코드 주입(CVE-2026-45833) — Chroma 서버를 운영하지 않아 해당 API가 없다
+PYSEC-2026-3815  # chromadb SimpleRBACAuthorizationProvider 테넌트 미확인(CVE-2026-45831) — Chroma 서버 권한 제공자를 쓰지 않는다
+PYSEC-2026-3813  # chromadb 테넌트 간 컬렉션 권한 미검증(CVE-2026-45830) — Chroma 서버와 테넌트를 두지 않는다
