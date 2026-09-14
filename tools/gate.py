@@ -1351,6 +1351,106 @@ def check_sast():
         add("INFO", "X2", "semgrep: no security findings")
 
 
+PIP_AUDIT_IGNORE = ".pip-audit-ignore"
+_PIP_AUDIT_IGNORE_LINE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._:-]+)(?:\s+#\s*(\S.*))?$")
+
+
+def _pip_audit_ignores():
+    """감사 예외 목록을 읽는다. (적용할 (ID, 사유) 목록, 사유가 없어 적용하지 않은 ID 목록).
+
+    수정 버전이 없는 권고는 차단을 유지하면 게이트가 계속 실패해 결국 감사 자체를 끄게 된다.
+    그렇다고 조용히 빼면 무엇을 왜 뺐는지 사라진다. 그래서 사유를 적은 줄만 적용하고, 적용한
+    예외는 매번 WARN으로 다시 보여 준다. 사유 없는 줄은 적용하지 않고 그 사실을 알린다.
+    형식은 한 줄에 `권고ID  # 사유`, `#`으로 시작하는 줄은 설명이다.
+    """
+    path = os.path.join(ROOT, PIP_AUDIT_IGNORE)
+    applied, unreasoned = [], []
+    if not os.path.exists(path):
+        return applied, unreasoned
+    with open(path, encoding="utf-8") as f:
+        for raw in f.read().splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            m = _PIP_AUDIT_IGNORE_LINE.match(line)
+            if m and m.group(2):
+                applied.append((m.group(1), m.group(2).strip()))
+            else:
+                unreasoned.append(line.split()[0])
+    return applied, unreasoned
+
+
+def _audit_python_deps(has):
+    """배포 의존성 파일을 pip-audit로 감사한다.
+
+    pip-audit는 대상 파일 없이 실행하면 **자기가 설치된 파이썬 환경**을 감사한다. 도구를 pipx나
+    Homebrew의 전용 가상환경에 설치한 기계에서는 게이트가 프로젝트가 아니라 pip-audit 자신의
+    의존성을 감사하고 "취약점 없음"을 냈고, 배포 의존성의 취약점을 놓쳤다. 그래서 감사 대상을
+    파일로 정한다. 해시 잠금(`requirements.lock`)이 있으면 그 파일을 의존성 재해석 없이 감사해
+    배포되는 버전을 그대로 보고, 없으면 `requirements.txt`를 감사한다. 둘 다 없으면 실행하지 않고
+    미검사로 남긴다 — 엉뚱한 환경의 결과를 통과로 쓰지 않는다.
+
+    결과를 읽지 못한 실행도 통과가 아니다. 종료코드와 JSON이 맞지 않으면 미검사 WARN으로 남긴다.
+    """
+    target = next((f for f in ("requirements.lock", "requirements.txt") if has(f)), None)
+    if target is None:
+        add("WARN", "X3", "python manifest present but no requirements.lock or requirements.txt"
+                          " — deps not audited",
+            "    pip-audit는 대상 파일 없이 돌리면 도구 자신의 환경을 감사한다.\n"
+            "    배포 의존성을 requirements 형식(가능하면 해시 잠금)으로 내보내 두거나 따로 감사할 것")
+        return
+    if shutil.which("pip-audit") is None:
+        add("WARN", "X3", "python manifest present but pip-audit not installed — deps not audited",
+            "    `pipx install pip-audit` 후 다시 돌릴 것")
+        return
+
+    args = ["pip-audit", "-r", target, "-f", "json", "--progress-spinner", "off"]
+    if target == "requirements.lock":
+        with open(os.path.join(ROOT, target), encoding="utf-8") as f:
+            if "--hash=" in f.read():
+                args.append("--require-hashes")
+        args += ["--no-deps", "--disable-pip"]
+    applied, unreasoned = _pip_audit_ignores()
+    for vuln_id, _reason in applied:
+        args += ["--ignore-vuln", vuln_id]
+
+    rc, out, err = _run(args, timeout=900)
+    try:
+        data = json.loads(out)
+        deps = data.get("dependencies", data if isinstance(data, list) else [])
+        bad = [d for d in deps if d.get("vulns")]
+        # PyPI에서 찾지 못한 패키지는 건너뛰고도 종료코드 0이 난다. 감사하지 않은 것을 통과로 읽지 않게 따로 센다.
+        skipped = [d for d in deps if d.get("skip_reason")]
+    except Exception:
+        data, bad, skipped = None, [], []
+
+    if bad:
+        add("BLOCK", "X3", f"pip-audit ({target}): {len(bad)} vulnerable dependency(ies)",
+            "\n".join(f"    {d.get('name')} {d.get('version')} — "
+                      + ",".join(v.get("id", "?") for v in d["vulns"][:3])
+                      for d in bad[:8])
+            + "\n    수정 버전으로 올릴 것. 올릴 수 없고 공격 경로가 닿지 않으면 "
+              f"{PIP_AUDIT_IGNORE}에 `ID  # 사유`로 남길 것")
+    elif data is None or rc != 0:
+        tail = "\n".join(f"    {ln}" for ln in (err or "").strip().splitlines()[-4:])
+        add("WARN", "X3", f"pip-audit did not complete on {target} (exit {rc}) — deps not audited",
+            tail or "    출력이 없다")
+    else:
+        add("INFO", "X3", f"pip-audit ({target}): no vulnerable dependencies")
+
+    if skipped:
+        add("WARN", "X3", f"pip-audit ({target}): {len(skipped)} dependency(ies) could not be audited",
+            "\n".join(f"    {d.get('name')} {d.get('version')} — {d.get('skip_reason')}"
+                      for d in skipped[:8]))
+    if applied:
+        add("WARN", "X3", f"pip-audit: {len(applied)} advisory(ies) ignored by {PIP_AUDIT_IGNORE}",
+            "\n".join(f"    {vuln_id} — {reason}" for vuln_id, reason in applied))
+    if unreasoned:
+        add("WARN", "X3", f"pip-audit: {len(unreasoned)} {PIP_AUDIT_IGNORE} entry(ies) without a reason"
+                          " not applied",
+            "\n".join(f"    {vuln_id}" for vuln_id in unreasoned))
+
+
 def check_deps():
     """의존성의 알려진 취약점. 매니페스트가 있는 생태계만 본다.
 
@@ -1380,25 +1480,8 @@ def check_deps():
             elif v:
                 add("INFO", "X3", f"npm audit: no critical/high (moderate={v.get('moderate', 0)})")
 
-    if has("requirements.txt", "pyproject.toml", "poetry.lock", "Pipfile.lock"):
-        if shutil.which("pip-audit") is None:
-            add("WARN", "X3", "python manifest present but pip-audit not installed — deps not audited",
-                "    `pipx install pip-audit` 후 다시 돌릴 것")
-        else:
-            rc, out, _ = _run(["pip-audit", "-f", "json", "--progress-spinner", "off"], timeout=600)
-            try:
-                data = json.loads(out)
-                deps = data.get("dependencies", data if isinstance(data, list) else [])
-                bad = [d for d in deps if d.get("vulns")]
-            except Exception:
-                bad = []
-            if bad:
-                add("BLOCK", "X3", f"pip-audit: {len(bad)} vulnerable dependency(ies)",
-                    "\n".join(f"    {d.get('name')} {d.get('version')} — "
-                              + ",".join(v.get("id", "?") for v in d["vulns"][:3])
-                              for d in bad[:8]))
-            elif rc == 0:
-                add("INFO", "X3", "pip-audit: no vulnerable dependencies")
+    if has("requirements.lock", "requirements.txt", "pyproject.toml", "poetry.lock", "Pipfile.lock"):
+        _audit_python_deps(has)
 
     if has("build.gradle", "build.gradle.kts", "pom.xml"):
         add("WARN", "X3", "JVM dependencies are not audited by this gate",

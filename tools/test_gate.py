@@ -1328,6 +1328,126 @@ try:
 finally:
     shutil.rmtree(_d, ignore_errors=True)
 
+# ── X3: pip-audit 감사 대상·실패·예외 목록 ───────────────────────────────
+# pip-audit는 대상 파일 없이 실행하면 **자기가 설치된 파이썬 환경**을 감사한다. 도구를 전용
+# 가상환경(pipx·Homebrew)에 설치한 기계에서는 게이트가 프로젝트가 아니라 pip-audit 자신의 의존성을
+# 감사하고 "취약점 없음"을 냈다. 실제로 배포 의존성에 수정 버전 없는 취약점이 있는 저장소를 이렇게
+# 통과시켰다. 또 JSON 없이 실패하면 아무 줄도 남기지 않았다. 스텁이 받은 인자를 파일로 남기게 해
+# 감사 대상과 옵션을 직접 확인한다.
+_X3_CLEAN = ("print(json.dumps({'dependencies': [{'name': 'pkg', 'version': '1.0', 'vulns': []}],"
+             " 'fixes': []}))\n")
+_X3_VULN = ("print(json.dumps({'dependencies': [{'name': 'pkg', 'version': '1.0', 'vulns':"
+            " [{'id': 'PYSEC-0000-9', 'fix_versions': [], 'aliases': [], 'description': ''}]}],"
+            " 'fixes': []}))\nsys.exit(1)\n")
+_X3_FAIL = "sys.stderr.write('network unreachable\\n')\nsys.exit(2)\n"
+
+
+def _x3_run(files, stub_body):
+    """파일을 둔 임시 저장소에 pip-audit 스텁을 앞세워 커밋 모드 게이트를 돌린다. (출력, 스텁 인자)"""
+    d = tempfile.mkdtemp(prefix="gate-t-")
+    try:
+        os.makedirs(os.path.join(d, "bin"))
+        w(d, "SPEC.yaml", 'version: 1\ntest_command: ""\nendpoints:\n')
+        for rel, text in files.items():
+            w(d, rel, text)
+        stub = os.path.join(d, "bin", "pip-audit")
+        io.open(stub, "w", encoding="utf-8").write(
+            "#!/usr/bin/env python3\nimport json, os, sys\n"
+            "io_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'argv.json')\n"
+            "open(io_path, 'w').write(json.dumps(sys.argv[1:]))\n" + stub_body)
+        os.chmod(stub, 0o755)
+        env = dict(os.environ, PATH=os.path.join(d, "bin") + os.pathsep + os.environ["PATH"])
+        out = subprocess.run([sys.executable, GATE, d, "--commit"], env=env,
+                             capture_output=True, text=True, timeout=300).stdout or ""
+        argv_path = os.path.join(d, "bin", "argv.json")
+        argv = json.load(io.open(argv_path, encoding="utf-8")) if os.path.exists(argv_path) else None
+        return out, argv
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _x3_lines(out):
+    return "\n".join(ln for ln in out.splitlines() if "X3" in ln or ln.startswith("│     "))
+
+
+def _after(argv, flag):
+    return argv[argv.index(flag) + 1] if argv and flag in argv and argv.index(flag) + 1 < len(argv) else None
+
+
+_LOCK = "pkg==1.0 \\\n    --hash=sha256:" + "a" * 64 + "\n"
+
+_out, _argv = _x3_run({"requirements.txt": "pkg>=1\n", "requirements.lock": _LOCK}, _X3_CLEAN)
+_bad = []
+if _after(_argv, "-r") != "requirements.lock":
+    _bad.append(f"잠금 파일을 감사 대상으로 넘기지 않음 — 인자 {_argv}")
+for _flag in ("--require-hashes", "--no-deps", "--disable-pip"):
+    if not _argv or _flag not in _argv:
+        _bad.append(f"{_flag} 없음")
+if "no vulnerable dependencies" not in _out or "requirements.lock" not in _out:
+    _bad.append("감사 대상과 결과를 INFO로 밝히지 않음")
+results.append(("X3: 해시 잠금 파일을 재해석 없이 감사", _bad, _x3_lines(_out)))
+
+_out, _argv = _x3_run({"requirements.txt": "pkg>=1\n"}, _X3_CLEAN)
+_bad = []
+if _after(_argv, "-r") != "requirements.txt":
+    _bad.append(f"requirements.txt를 감사 대상으로 넘기지 않음 — 인자 {_argv}")
+if _argv and "--no-deps" in _argv:
+    _bad.append("범위만 적힌 파일에 --no-deps — 하위 의존성을 감사하지 못한다")
+results.append(("X3: 잠금이 없으면 requirements.txt를 감사", _bad, _x3_lines(_out)))
+
+_out, _argv = _x3_run({"pyproject.toml": "[project]\nname = 'pkg'\n"}, _X3_CLEAN)
+_bad = []
+if _argv is not None:
+    _bad.append("감사 대상 파일이 없는데 pip-audit를 실행 — 도구 자신의 환경을 감사한다")
+if "[X3]" not in _out or "not audited" not in _out:
+    _bad.append("감사하지 못했다는 사실을 WARN으로 남기지 않음")
+results.append(("X3 반증: 대상 파일 없으면 도구 환경을 감사하지 않음", _bad, _x3_lines(_out)))
+
+_out, _argv = _x3_run({"requirements.txt": "pkg>=1\n"}, _X3_FAIL)
+_bad = []
+if "did not complete" not in _out:
+    _bad.append("pip-audit 실패를 조용히 넘김")
+if "network unreachable" not in _out:
+    _bad.append("실패 사유(stderr)를 보여 주지 않음")
+if "no vulnerable dependencies" in _out:
+    _bad.append("실패를 통과로 보고")
+results.append(("X3 반증: pip-audit 실패는 미검사 WARN", _bad, _x3_lines(_out)))
+
+_out, _argv = _x3_run({"requirements.txt": "pkg>=1\n"}, _X3_VULN)
+_bad = []
+if "vulnerable dependency" not in _out or "PYSEC-0000-9" not in _out:
+    _bad.append("취약 의존성을 보고하지 않음")
+if "■" not in _out:
+    _bad.append("BLOCK 아님")
+results.append(("X3: 취약 의존성은 BLOCK", _bad, _x3_lines(_out)))
+
+_out, _argv = _x3_run({"requirements.lock": _LOCK,
+                       ".pip-audit-ignore": "# 형식: ID  # 사유\n"
+                                            "PYSEC-0000-1   # 서버를 띄우지 않아 공격 경로가 없다\n"
+                                            "PYSEC-0000-2\n"}, _X3_CLEAN)
+_bad = []
+_ignored = [_argv[i + 1] for i, a in enumerate(_argv or []) if a == "--ignore-vuln" and i + 1 < len(_argv)]
+if _ignored != ["PYSEC-0000-1"]:
+    _bad.append(f"사유 있는 항목만 --ignore-vuln으로 넘기지 않음 — {_ignored}")
+if "ignored by .pip-audit-ignore" not in _out or "서버를 띄우지 않아" not in _out:
+    _bad.append("무시한 권고와 사유를 WARN으로 드러내지 않음")
+if "without a reason" not in _out or "PYSEC-0000-2" not in _out:
+    _bad.append("사유 없는 항목을 적용하지 않았다는 사실을 알리지 않음")
+results.append(("X3: 예외 목록은 사유 있는 항목만 적용하고 드러냄", _bad, _x3_lines(_out)))
+
+# pip-audit는 PyPI에서 찾지 못한 패키지를 건너뛰고도 종료코드 0을 낸다(`skip_reason`만 붙는다).
+# 그 결과를 "취약점 없음"으로만 보고하면 감사하지 않은 의존성이 깨끗한 것처럼 읽힌다.
+_X3_SKIP = ("print(json.dumps({'dependencies': ["
+            "{'name': 'pkg', 'version': '1.0', 'vulns': []},"
+            "{'name': 'private-pkg', 'version': '2.0',"
+            " 'skip_reason': 'Dependency not found on PyPI and could not be audited'}],"
+            " 'fixes': []}))\n")
+_out, _argv = _x3_run({"requirements.lock": _LOCK}, _X3_SKIP)
+_bad = []
+if "could not be audited" not in _out or "private-pkg" not in _out:
+    _bad.append("건너뛴 의존성을 WARN으로 드러내지 않음 — 감사하지 않은 패키지가 통과로 읽힌다")
+results.append(("X3 반증: 건너뛴 의존성은 미검사 WARN", _bad, _x3_lines(_out)))
+
 # ── V1: 셸 문법 test_command ─────────────────────────────────────────────
 # 게이트는 test_command를 셸 없이 실행한다. 셸 연산자가 인자로 남으면 명령이 적힌 대로
 # 돌지 않으므로, 조용히 통과하거나 엉뚱한 이유로 실패하지 않고 사유를 밝혀 막아야 한다.
