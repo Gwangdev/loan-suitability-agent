@@ -56,11 +56,14 @@ jobs:
       # 앞 공백은 지우고 `ID  # 사유` 형태만 받는다. 이 스텝은 `bash -eo pipefail`로 돌아서 grep처럼
       # 일치가 없을 때 실패하는 명령을 쓰면 목록이 비었거나 파일이 없을 때 감사 전에 스텝이 멈춘다.
       # awk는 일치가 없어도 0으로 끝나고, 파일이 없으면 예외 없이 감사한다.
+      # pip-audit는 별도 가상환경에 설치한다. 테스트가 쓴 환경에 설치하면 pip-audit의 의존성 요구가
+      # 잠금 버전과 부딪혀, 성공한 스텝 로그에 pip의 `ERROR:` 줄이 찍히고 잠금으로 설치한 패키지가 바뀐다.
       - name: Audit locked dependencies
         run: |
-          python -m pip install pip-audit
+          python -m venv /tmp/pip-audit-venv
+          /tmp/pip-audit-venv/bin/pip install --quiet pip-audit
           ignores=""
           if [ -f .pip-audit-ignore ]; then
             ignores=$(awk '{ sub(/^[ \t]+/, "") } /^[A-Za-z0-9][A-Za-z0-9._:-]+[ \t]+#[ \t]*[^ \t]/ { printf "--ignore-vuln %s ", $1 }' .pip-audit-ignore)
           fi
-          pip-audit -r requirements.lock --require-hashes --no-deps --disable-pip --progress-spinner off $ignores
+          /tmp/pip-audit-venv/bin/pip-audit -r requirements.lock --require-hashes --no-deps --disable-pip --progress-spinner off $ignores
