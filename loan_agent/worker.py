@@ -24,7 +24,7 @@ import uuid
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from loan_agent import core, llm, decision, logs, eval as evaluator
+from loan_agent import audit, core, llm, decision, logs, eval as evaluator
 from loan_agent.db import engine as db_engine
 from loan_agent.db import models
 
@@ -115,6 +115,15 @@ def reclaim_stale() -> int:
         for run in stale:
             run.status = "PENDING"
             run.started_at = None
+            # 회수는 실행 한 번이 결과 없이 버려졌다는 뜻이다. 남기지 않으면 RUNNING에서 PENDING으로
+            # 되돌아간 사실이 어디에도 없어, 나중에 도착한 결과가 왜 버려졌는지 설명할 수 없다.
+            audit.record(
+                session,
+                action=audit.EXPLANATION_RUN_RECLAIMED,
+                actor_type="system",
+                target_type="explanation_run",
+                target_id=run.id,
+            )
         return len(stale)
 
 
@@ -152,6 +161,25 @@ def claim_for_visitor(assessment_id: uuid.UUID) -> uuid.UUID:
             run = models.ExplanationRun(assessment_id=assessment_id, status="PENDING")
             session.add(run)
             session.flush()
+            # 이 경로도 실행 행을 새로 만드는 자리다. 형제 생성 경로(심사 생성·재생성 POST)와 같이
+            # 요청한 사실을 남겨야, 결과 기록만 있고 누가 시켰는지 모르는 행이 생기지 않는다.
+            audit.record(
+                session,
+                action=audit.EXPLANATION_RUN_REQUESTED,
+                actor_type="consultant",
+                target_type="explanation_run",
+                target_id=run.id,
+            )
+        elif run.status == "RUNNING":
+            # 상한을 넘겨 남아 있던 실행을 가로채는 자리다. 워커의 회수와 같은 일이 벌어지므로 같은
+            # 기록을 남긴다 — 남기지 않으면 앞선 실행의 결과가 버려진 이유가 어디에도 없다.
+            audit.record(
+                session,
+                action=audit.EXPLANATION_RUN_RECLAIMED,
+                actor_type="system",
+                target_type="explanation_run",
+                target_id=run.id,
+            )
         run.status = "RUNNING"
         run.started_at = datetime.datetime.now(datetime.timezone.utc)
         return run.id
@@ -244,8 +272,30 @@ def score_explanation(case: models.AssessmentCase, explanation: Explanation) -> 
     return Score(checks=checks, passed=passed, detail=detail)
 
 
+def _record_outcome(session, run: models.ExplanationRun, score: Score | None, executor: str) -> None:
+    """실행 결과를 상태 전이와 같은 트랜잭션에 남긴다.
+
+    상태만 바뀌고 기록이 없는 순간이 생기면 감사 이력이 상태와 어긋난다. 메타데이터는 결과를 읽는 데
+    필요한 것만 담는다 — 안내문 본문과 실패 근거는 실행 행과 채점 행에 이미 있다.
+    """
+    audit.record(
+        session,
+        action=audit.EXPLANATION_RUN_FINISHED,
+        actor_type="system",
+        target_type="explanation_run",
+        target_id=run.id,
+        metadata={
+            "status": run.status,
+            "error_code": run.error_code,
+            "passed": None if score is None else score.passed,
+            "executor": executor,
+        },
+    )
+
+
 def _finish(run_id: uuid.UUID, explanation: Explanation | None, score: Score | None,
-            error_code: str | None, elapsed_ms: int, *, claimed_at: datetime.datetime | None) -> bool:
+            error_code: str | None, elapsed_ms: int, *, claimed_at: datetime.datetime | None,
+            executor: str) -> bool:
     """실행 결과를 한 트랜잭션에 기록하고 심사 상태를 함께 옮긴다. 기록했으면 True, 버렸으면 False.
 
     기록은 이 실행자가 집은 행이 아직 그대로일 때만 한다. `reclaim_stale`은 죽은 워커의 작업을 살리려고
@@ -272,6 +322,7 @@ def _finish(run_id: uuid.UUID, explanation: Explanation | None, score: Score | N
             run.status = "FAILED"
             run.error_code = error_code
             case.status = "EXPLANATION_FAILED"
+            _record_outcome(session, run, score, executor)
             return True
 
         run.model_name = explanation.model_name
@@ -294,12 +345,14 @@ def _finish(run_id: uuid.UUID, explanation: Explanation | None, score: Score | N
             # 통과하지 못한 설명은 저장도 노출도 하지 않고 유효본으로 가리키지도 않는다(ADR-007).
             run.status = "REVIEW_REQUIRED"
             case.status = "REVIEW_REQUIRED"
+            _record_outcome(session, run, score, executor)
             return True
 
         run.status = "COMPLETED"
         run.explanation_text = explanation.text
         case.status = "COMPLETED"
         case.current_explanation_run_id = run.id
+        _record_outcome(session, run, score, executor)
         return True
 
 
@@ -315,7 +368,21 @@ def execute_claimed_run(
     조용히 끝나면 되지만, 동기 호출자는 무엇이 일어났는지 받아야 한다. 그래서 시간 초과뿐 아니라
     이 실행자가 행을 더는 보유하지 않아 결과가 버려진 경우도 예외로 올린다. 버려졌는데 정상 반환하면
     호출자가 남이 실행 중인 행을 결과로 받는다. 형제 경로가 이미 쓰는 `ExplanationRunConflict`로 알린다.
+
+    워커는 요청 밖에서 돌아 이어받을 식별자가 없다. 실행 하나에 새 식별자를 묶어 그 실행의 로그와 감사
+    기록이 같은 값을 갖게 하고, 앞뒤는 실행 행 하나로 잇는다. 요청 안에서 도는 동기 경로는 이미 묶여
+    있는 요청 식별자를 그대로 쓴다.
     """
+    token = logs.bind(uuid.uuid4()) if logs.current_correlation_id() is None else None
+    try:
+        _run_claimed(run_id, api_key=api_key, raise_timeout=raise_timeout)
+    finally:
+        if token is not None:
+            logs.unbind(token)
+
+
+def _run_claimed(run_id: uuid.UUID, *, api_key: str | None, raise_timeout: bool) -> None:
+    executor = "app" if raise_timeout else "worker"
     with Session(bind=db_engine.get_engine()) as session:
         run = session.get(models.ExplanationRun, run_id)
         # 집을 때 적힌 시각이 이 실행자가 행을 보유하고 있다는 표식이다. 결과를 쓸 때 다시 대조한다.
@@ -329,7 +396,7 @@ def execute_claimed_run(
         score = score_explanation(case, explanation)
     except TimeoutError as exc:
         held = _finish(run_id, None, None, "PROVIDER_TIMEOUT", int((time.monotonic() - started) * 1000),
-                       claimed_at=claimed_at)
+                       claimed_at=claimed_at, executor=executor)
         if raise_timeout:
             if not held:
                 raise ExplanationRunConflict(case.id) from exc
@@ -344,15 +411,18 @@ def execute_claimed_run(
         # 않고 실행 식별자와 정규화된 코드만 기록한다.
         logger.error("explanation run failed: %s", run_id, extra={"run_id": str(run_id)})
         held = _finish(run_id, None, None, "PROVIDER_ERROR", int((time.monotonic() - started) * 1000),
-                       claimed_at=claimed_at)
+                       claimed_at=claimed_at, executor=executor)
         if raise_timeout and not held:
             raise ExplanationRunConflict(case.id)
         return
 
     held = _finish(run_id, explanation, score, None, int((time.monotonic() - started) * 1000),
-                   claimed_at=claimed_at)
+                   claimed_at=claimed_at, executor=executor)
     if raise_timeout and not held:
         raise ExplanationRunConflict(case.id)
+    if held:
+        # 이 줄이 실행의 로그와 감사 기록을 잇는 지점이다. 식별자는 핸들러가 찍는다.
+        logger.info("explanation run finished", extra={"run_id": str(run_id)})
 
 
 def run_once() -> bool:

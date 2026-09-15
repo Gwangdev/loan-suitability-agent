@@ -3,7 +3,7 @@
 생성은 구조화 입력을 받아 결정적 판정을 한 트랜잭션에 저장한다.
 
 이 엔드포인트가 관통 논리의 실물이 나오는 자리다. 판정은 결정적 계층이 산출하고
-(`decision.decide` → `core.screen_loan`), LLM은 여기서 부르지 않는다. 대신 설명 작업을
+(`decision.decide` → `screening.screen_loan`), LLM은 여기서 부르지 않는다. 대신 설명 작업을
 `explanation_run(PENDING)` 행으로 심사와 같은 트랜잭션에 넣어, 커밋과 작업 발행이
 원자적이 되게 한다. 별도 아웃박스 테이블 없이 아웃박스 패턴의 성질을 얻는다(ADR-003).
 
@@ -25,12 +25,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from loan_agent import decision, logs
+from loan_agent import audit, decision
 from loan_agent.api import explanations
 from loan_agent.db import engine as db_engine
 from loan_agent.db.models import (
     AssessmentCase,
-    AuditEvent,
     DecisionResult,
     ExplanationRun,
     IN_FLIGHT_RUN_STATUSES,
@@ -114,18 +113,25 @@ def _persist(session, payload: AssessmentRequest, idempotency_key: str, request_
             )
         )
 
-    session.add(ExplanationRun(assessment_id=case.id, status="PENDING"))
-    session.add(
-        AuditEvent(
-            # 요청 로그와 같은 식별자를 쓴다. 따로 뽑으면 감사 이벤트와 로그를 이을 수
-            # 없다. 요청 밖에서 불렸다면 묶인 값이 없으므로 그때만 새로 만든다.
-            correlation_id=logs.current_correlation_id() or uuid.uuid4(),
-            actor_type="consultant",
-            action="assessment.created",
-            target_type="assessment_case",
-            target_id=case.id,
-            metadata_={"verdict": decided["verdict"]},
-        )
+    run = ExplanationRun(assessment_id=case.id, status="PENDING")
+    session.add(run)
+    session.flush()
+    audit.record(
+        session,
+        action=audit.ASSESSMENT_CREATED,
+        actor_type="consultant",
+        target_type="assessment_case",
+        target_id=case.id,
+        metadata={"verdict": decided["verdict"]},
+    )
+    # 실행 행을 만든 사실도 남긴다. 이 행이 요청과 실행 결과를 잇는 지점이라, 요청한 기록이 없으면
+    # 결과 기록만 떠 있고 누가 시켰는지 되짚을 수 없다.
+    audit.record(
+        session,
+        action=audit.EXPLANATION_RUN_REQUESTED,
+        actor_type="consultant",
+        target_type="explanation_run",
+        target_id=run.id,
     )
     session.flush()
     return case.id

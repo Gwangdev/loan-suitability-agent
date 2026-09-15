@@ -77,6 +77,9 @@ services:
       # 요청 로그는 앱이 식별자와 함께 JSON으로 남긴다(`loan_agent/api/request_log.py`).
       # uvicorn 접근 로그를 켜 두면 같은 요청이 식별자 없는 평문으로 한 번 더 찍힌다.
       - --no-access-log
+      # 서버 자체 로그도 같은 한 줄 JSON으로 쓴다. 기본 설정은 평문이고 traceback이 여러 줄이라,
+      # 수집기가 줄 단위로 읽으면 한 기록이 여러 조각으로 흩어져 앱 로그와 시간순으로 합칠 수 없다.
+      - --log-config=loan_agent/uvicorn_log.json
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:?Set POSTGRES_USER}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-loan_suitability}
     user: "10001:10001"

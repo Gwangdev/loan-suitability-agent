@@ -268,10 +268,62 @@ def test_audit_event_shares_the_request_correlation_id(api_db, captured):
     [line] = captured.requests()
     with api_db.connect() as conn:
         target_id = conn.execute(
-            text("SELECT target_id FROM audit_event WHERE correlation_id = :cid"),
+            text(
+                "SELECT target_id FROM audit_event"
+                " WHERE correlation_id = :cid AND action = 'assessment.created'"
+            ),
             {"cid": line["correlation_id"]},
         ).scalar_one()
     assert str(target_id) == response.json()["assessment_id"]
+
+
+def test_the_server_log_config_writes_one_json_line_per_record(uvicorn_stderr):
+    """서버 자체 로그도 한 줄 JSON이어야 앱 로그와 시간순으로 합쳐 읽을 수 있다.
+
+    기본 설정은 평문이고 traceback은 여러 줄이라, 수집기가 줄 단위로 읽으면 한 기록이 여러 조각으로
+    흩어진다. 기동 명령이 넘기는 설정 파일을 그대로 적용해 확인한다.
+    """
+    import pathlib
+
+    config = json.loads(
+        (pathlib.Path(__file__).resolve().parents[1] / "loan_agent" / "uvicorn_log.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    config["handlers"]["default"]["stream"] = uvicorn_stderr
+    logging.config.dictConfig(config)
+
+    logging.getLogger("uvicorn.error").info("Application startup complete.")
+
+    [entry] = [json.loads(line) for line in uvicorn_stderr.getvalue().splitlines()]
+    assert entry["message"] == "Application startup complete."
+    assert entry["logger"] == "uvicorn.error"
+
+
+def test_the_server_log_config_still_masks_keys_in_a_traceback(uvicorn_stderr):
+    """로그 형식을 바꿔도 가림은 그대로여야 한다.
+
+    가림은 포매터가 아니라 핸들러 필터이고, 앱이 설정될 때 서버 로거의 핸들러에 붙는다. 서버 쪽
+    설정을 갈아 끼우면 그 핸들러가 새것으로 바뀌므로, 이 순서가 유지되는지 형식 교체와 함께 본다.
+    """
+    import pathlib
+
+    config = json.loads(
+        (pathlib.Path(__file__).resolve().parents[1] / "loan_agent" / "uvicorn_log.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    config["handlers"]["default"]["stream"] = uvicorn_stderr
+    logging.config.dictConfig(config)
+    logs.configure(stream=io.StringIO())
+
+    with pytest.raises(ConnectionError) as rethrown:
+        TestClient(_app_raising_an_error_that_carries_a_key()).get("/boom")
+    logging.getLogger("uvicorn.error").error("Exception in ASGI application", exc_info=rethrown.value)
+
+    [entry] = [json.loads(line) for line in uvicorn_stderr.getvalue().splitlines()]
+    assert "Illegal header value" in entry["exception"]
+    assert "LEAKCHECK" not in uvicorn_stderr.getvalue()
 
 
 def test_formatter_drops_fields_outside_the_allowlist():

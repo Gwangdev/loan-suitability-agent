@@ -391,7 +391,7 @@ def test_provider_timeout_on_the_worker_path_does_not_crash_the_loop(monkeypatch
     monkeypatch.setattr(worker, "generate_explanation",
                         lambda *_a, **_k: (_ for _ in ()).throw(TimeoutError("provider")))
     monkeypatch.setattr(worker, "_finish",
-                        lambda run_id, exp, score, code, ms, *, claimed_at: finished.append(code))
+                        lambda run_id, exp, score, code, ms, *, claimed_at, executor: finished.append(code))
     monkeypatch.setattr(worker, "Session", _StubSession)
     monkeypatch.setattr(worker.db_engine, "get_engine", lambda: None)
 

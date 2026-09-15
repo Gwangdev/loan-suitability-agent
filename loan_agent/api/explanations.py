@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 
 from loan_agent.api.contract import API_KEY_HEADER
 from loan_agent.db import engine as db_engine
-from loan_agent import worker
+from loan_agent import audit, worker
 from loan_agent.db.models import (
     AssessmentCase,
     EvalResult,
@@ -106,6 +106,13 @@ def regenerate_explanation(
             run = ExplanationRun(assessment_id=assessment_id, status="PENDING")
             session.add(run)
             session.flush()
+            audit.record(
+                session,
+                action=audit.EXPLANATION_RUN_REQUESTED,
+                actor_type="consultant",
+                target_type="explanation_run",
+                target_id=run.id,
+            )
             # 키가 있든 없든 같은 표현을 돌려준다. 형상이 갈리면 클라이언트가 자기
             # 요청에 키를 넣었는지로 파싱을 분기해야 하고, 그것은 ADR-026이 심사
             # 응답에서 결함으로 판정한 형제 비대칭과 같은 형태다. 아직 실행 전이라

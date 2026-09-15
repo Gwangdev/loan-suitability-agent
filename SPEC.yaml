@@ -284,6 +284,17 @@ exclude:
 #       would fire on every visitor request. ADR-019's 409 is for a RUNNING
 #       row only.
 #
+#       Audit trail (revised 2026-09-15, ADR-037). Four actions are written:
+#       assessment.created, explanation_run.requested (both creation paths),
+#       explanation_run.finished (both executors, in the status-transition
+#       transaction) and explanation_run.reclaimed. The worker binds a fresh
+#       correlation id per execution — it runs outside any request — so its log
+#       lines and its finished event share one value; a request-driven run keeps
+#       the request's. The run row is the hop that joins the two. Metadata is
+#       allow-listed (verdict, status, error_code, passed, executor); no schema
+#       change. The server's own uvicorn logs use the same JSON formatter via
+#       --log-config.
+#
 #       Network (revised 2026-09-15, ADR-035). The worker joins `backend` to
 #       reach the database and `egress`, a non-internal network no other
 #       service joins, to reach the model provider. `backend` is internal, so a
