@@ -16,7 +16,7 @@
 import json
 import re
 
-from loan_agent import core
+from loan_agent import core, demo as demo_cases, parser, products, screening
 
 # 확정(단정) 표현 금지 목록 — 조건부 표현을 써야 한다.
 FORBIDDEN_DEFINITIVE = ["승인합니다", "대출해드립니다", "대출해 드립니다", "보장합니다", "확정합니다"]
@@ -24,7 +24,7 @@ FORBIDDEN_DEFINITIVE = ["승인합니다", "대출해드립니다", "대출해 �
 # 채점 지표 순서(리포트 컬럼)
 METRICS = ["파싱정확도", "판정정합성", "디스클레이머", "추천정합성", "수치근거", "조건부표현"]
 
-_PRODUCT_CODES = {p["상품코드"] for p in core.PRODUCTS}
+_PRODUCT_CODES = {p["상품코드"] for p in products.PRODUCTS}
 EVAL_CASES_PATH = core.BASE_DIR / "loan_agent" / "eval_cases.json"
 
 
@@ -87,8 +87,8 @@ def score_case(case: dict) -> dict:
     # 결정적 정답
     # 한글 수사처럼 규칙 파서가 아직 해석하지 못하는 표현은 케이스에 독립적으로
     # 검토한 구조화 정답을 함께 저장한다. 그 밖의 케이스는 기존 규칙 파서를 정답으로 쓴다.
-    parsed_gt = case.get("expected_parse") or core.rule_based_parse(inp)
-    screen = core.screen_loan(parsed_gt)
+    parsed_gt = case.get("expected_parse") or parser.rule_based_parse(inp)
+    screen = screening.screen_loan(parsed_gt)
     판정 = screen["판정"]
     rec = screen["추천상품"]
 
@@ -109,7 +109,7 @@ def score_case(case: dict) -> dict:
     # 2. 판정정합성 — 안내문의 결론이 결정적 판정과 어긋나지 않음
     #   주의: '어려운' 같은 단어는 설명 문맥(일부 상품 한도 초과 등)에도 쓰이므로 톤 판별에서 제외하고,
     #   '거절/불가능'처럼 명확히 승인을 부정하는 표현(HARD_REJECT)만 모순으로 본다.
-    missing = core.missing_required_fields(parsed_gt)
+    missing = screening.missing_required_fields(parsed_gt)
     HARD_REJECT = ["거절", "불가능", "승인 불가", "승인이 불가"]
     hard = any(h in 안내 for h in HARD_REJECT)
     if missing:
@@ -200,7 +200,7 @@ def score_case(case: dict) -> dict:
 def run_eval(fixtures: dict = None) -> dict:
     """전체 케이스를 채점해 집계 리포트를 반환한다."""
     if fixtures is None:
-        fixtures = core.load_demo_fixtures()
+        fixtures = demo_cases.load_demo_fixtures()
         fixtures = {**fixtures, "cases": fixtures.get("cases", []) + _load_supplemental_cases()}
     cases = fixtures.get("cases", [])
     scored = [score_case(c) for c in cases]

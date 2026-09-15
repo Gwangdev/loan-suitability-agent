@@ -8,11 +8,11 @@
 """
 from fastapi import APIRouter
 
-from loan_agent import core
+from loan_agent import demo
 
 router = APIRouter(tags=["demo"])
 
 
 @router.get("/api/v1/demo-cases")
 def demo_cases():
-    return core.load_demo_fixtures()
+    return demo.load_demo_fixtures()

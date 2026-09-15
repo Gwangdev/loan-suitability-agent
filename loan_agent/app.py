@@ -41,7 +41,7 @@ import streamlit as st
 # 세션 메모리에서 요청 헤더로 넘기고 서버 키를 쓰지 않으므로 블록을 지웠다.
 # tests/test_no_environ_writes.py가 같은 쓰기의 재유입을 막는다.
 
-from loan_agent import core  # noqa: E402  (sys.path 보정 이후에 import)
+from loan_agent import core, demo as demo_cases, parser, screening  # noqa: E402  (sys.path 보정 이후에 import)
 
 # Compose에서는 서비스 이름 app으로, 로컬에서는 같은 포트의 Uvicorn으로 접속한다. 화면이
 # 판정을 직접 계산하지 않고 이 접속점만 알게 해야 UI → API → DB 경계가 실제 요청 경로가 된다.
@@ -257,7 +257,7 @@ def _render_result(out: dict, screen: dict = None):
         st.subheader("적합성 판정 — 결정적 규칙 (LLM 미개입)")
         if parsed is not None or screen is not None:
             if screen is None:
-                screen = core.screen_loan(parsed)
+                screen = screening.screen_loan(parsed)
             col1, col2 = st.columns([1, 3])
             with col1:
                 st.markdown(_badge_html(screen["판정"]), unsafe_allow_html=True)
@@ -386,7 +386,7 @@ def _render_data_notice():
 
 def _fill_form_from_text():
     """자유 서술을 규칙기반 파싱해 구조화 폼 필드를 채운다(키 불필요)."""
-    p = core.rule_based_parse(st.session_state.get("customer_input", ""))
+    p = parser.rule_based_parse(st.session_state.get("customer_input", ""))
     st.session_state.f_income = int(p.get("월소득") or 0)
     st.session_state.f_debt = int(p.get("부채") or 0)
     g = p.get("신용등급", 99)
@@ -494,7 +494,7 @@ def _reset_input():
 # 사전 녹화된 결과 로더(캐시) — 방문자가 키·토큰 없이 결과를 열람.
 @st.cache_data(show_spinner=False)
 def _demo_fixtures():
-    return core.load_demo_fixtures()
+    return demo_cases.load_demo_fixtures()
 
 
 def _load_demo(index: int):
@@ -592,7 +592,7 @@ def main():
 
     # 문구는 실행 경로를 그대로 적는다. 「3개 Agent가 순차 협업」은 세 부분이 모두
     # 사실과 달랐다 — 코드에 정의된 Agent는 파서와 안내 둘이고(llm.py), 이 화면이
-    # 실제로 도는 것은 안내 하나이며(폼 채우기는 core.rule_based_parse), 심사는
+    # 실제로 도는 것은 안내 하나이며(폼 채우기는 parser.rule_based_parse), 심사는
     # Agent가 아니라 결정적 함수다(core/decision.py). 3-Agent 파이프라인은 코드에서
     # 삭제됐고 test_assessments.py가 부활을 막고 있는데 화면만 그대로 광고하고 있었다.
     st.markdown("<div class='hero-title'>대출 상담 의사결정 지원</div>", unsafe_allow_html=True)
@@ -618,12 +618,12 @@ def main():
         st.divider()
 
         st.caption("예시 케이스 (클릭 시 입력창에 채워짐)")
-        for tc in core.TEST_CASES:
+        for tc in demo_cases.TEST_CASES:
             st.button(
                 tc["name"], key=f"tc_{tc['name']}", width="stretch",
                 on_click=_fill_input, args=(tc["input"],),
             )
-        for tc in core.EDGE_CASES:
+        for tc in demo_cases.EDGE_CASES:
             st.button(
                 tc["name"], key=f"ec_{tc['name']}", width="stretch",
                 on_click=_fill_input, args=(tc["input"],),
@@ -682,7 +682,7 @@ def main():
             st.checkbox("담보 제공 가능", key="f_collateral")
 
         customer = _form_customer()
-        missing = core.missing_required_fields(customer)
+        missing = screening.missing_required_fields(customer)
         # 아무것도 넣지 않은 첫 화면은 틀린 입력이 아니라 아직 시작하지 않은 상태다. 거기에
         # 오류 상자를 띄우면 방문자가 무언가 잘못한 것처럼 읽히고, 데모 결과를 띄워도 위에
         # 남는다. 처음 상태는 누락 목록으로 가를 수 없다 — 폼의 부채 칸은 비워도 0이라
@@ -690,7 +690,7 @@ def main():
         # 누락 목록 그대로 따른다.
         untouched = not any(st.session_state.get(k) for k in ("f_income", "f_debt", "f_grade", "f_amount"))
         if missing and untouched:
-            st.caption("필수 항목(" + ", ".join(label for label, _ in core.REQUIRED_FIELDS.values())
+            st.caption("필수 항목(" + ", ".join(label for label, _ in screening.REQUIRED_FIELDS.values())
                        + ")을 채우면 심사를 실행할 수 있습니다.")
         elif missing:
             st.error("보완이 필요한 항목: " + ", ".join(f"**{m}**" for m in missing)

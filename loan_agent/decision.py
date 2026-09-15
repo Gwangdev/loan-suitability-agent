@@ -1,6 +1,6 @@
 """결정적 판정을 영속화 계층이 저장할 수 있는 형태로 옮긴다.
 
-`core.screen_loan`은 노트북·화면이 함께 쓰는 한글 구조를 돌려준다. API와 DB는 영문
+`screening.screen_loan`은 노트북·화면이 함께 쓰는 한글 구조를 돌려준다. API와 DB는 영문
 enum과 정규화된 행을 다루므로 그 사이를 변환하는 자리가 필요하고, 이 변환을 HTTP
 모듈에 두면 「판정은 코드, 설명은 LLM」이라는 경계가 표면에서부터 흐려진다. 그래서
 변환을 API 밖의 이 모듈에 둔다.
@@ -12,7 +12,7 @@ enum과 정규화된 행을 다루므로 그 사이를 변환하는 자리가 �
 """
 import hashlib
 
-from loan_agent import core
+from loan_agent import products, screening
 
 # 판정 기준이 바뀌면(밴드 경계, 하드규칙, 대표 가정금리·기간) 이 값을 올린다.
 RULE_VERSION = "screening-2026.08"
@@ -39,7 +39,7 @@ BAND_LABEL = {v: k for k, v in _BAND_BY_LABEL.items()}
 
 def product_dataset_version() -> str:
     """현재 상품 CSV의 내용 해시. 파일이 한 글자라도 바뀌면 값이 달라진다."""
-    digest = hashlib.sha256(core.CSV_PATH.read_bytes()).hexdigest()
+    digest = hashlib.sha256(products.CSV_PATH.read_bytes()).hexdigest()
     return f"csv-{digest[:12]}"
 
 
@@ -53,7 +53,7 @@ def decide(
     collateral_owned: bool,
 ) -> dict:
     """구조화 입력을 결정적으로 판정하고 저장 가능한 형태로 돌려준다."""
-    raw = core.screen_loan(
+    raw = screening.screen_loan(
         {
             "월소득": monthly_income,
             "부채": existing_debt,
