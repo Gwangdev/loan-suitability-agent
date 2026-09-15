@@ -199,7 +199,8 @@ class EvalResult(Base):
         ForeignKey("explanation_run.id"),
         primary_key=True,
     )
-    parse_accuracy: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # 설명 실행 경로는 파싱을 하지 않아 이 지표를 채점하지 않는다. 그때는 통과가 아니라 NULL이다.
+    parse_accuracy: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     verdict_consistency: Mapped[bool] = mapped_column(Boolean, nullable=False)
     disclaimer_present: Mapped[bool] = mapped_column(Boolean, nullable=False)
     recommendation_consistency: Mapped[bool] = mapped_column(Boolean, nullable=False)

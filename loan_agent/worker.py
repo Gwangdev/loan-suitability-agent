@@ -32,6 +32,12 @@ logger = logging.getLogger(__name__)
 
 EVAL_METRICS = evaluator.METRICS
 
+# 파싱정확도는 LLM 파서의 JSON을 규칙 파서 정답과 대조하는 지표다. 이 경로는 저장된 구조화 값으로 안내문을
+# 한 번 생성할 뿐 파싱을 하지 않아 대조할 출력이 없다. 통과로 채우면 채점의 부재가 통과라는 주장이 되므로
+# 값을 비워 두고, 공개 여부는 이 경로가 실제로 채점하는 지표만으로 정한다.
+UNSCORED_METRICS = ("파싱정확도",)
+SCORED_METRICS = tuple(m for m in EVAL_METRICS if m not in UNSCORED_METRICS)
+
 # ADR-022가 정한 설명 작업 상한을 그대로 쓴다. 같은 뜻의 숫자를 여기서 새로 정하면
 # 두 값이 갈라지고, 어느 쪽이 맞는지 나중에 알 수 없다.
 RUN_TIMEOUT_SECONDS = core.EXPLANATION_RUN_TIMEOUT_SECONDS
@@ -227,11 +233,15 @@ def score_explanation(case: models.AssessmentCase, explanation: Explanation) -> 
         "result": {"파싱결과": None, "심사결과": None, "안내문": explanation.text},
     })
     checks = dict(scored["checks"])
-    # 파싱 지표는 Agent 1의 JSON을 대조하는 항목이다. 워커는 저장된 구조화 값으로
-    # 실행하므로 대조할 파싱 출력이 없다 — 해당 없음을 통과로 기록하지 않는다.
-    checks["파싱정확도"] = True
-    passed = all(checks.get(m) for m in EVAL_METRICS)
-    return Score(checks=checks, passed=passed, detail=scored["detail"])
+    detail = dict(scored["detail"])
+    # 공용 채점기는 파서 출력이 없으면 파싱 실패로 채점하고 근거까지 남긴다. 이 경로에서는 그 판정도 근거도
+    # 측정 결과가 아니므로 함께 지운다. 공개 여부를 「값이 있는 지표」로 계산하지 않는 이유는, 채점 대상
+    # 지표가 실수로 비어 돌아오면 판단에서 조용히 빠져 통과하지 못한 안내문이 공개될 수 있기 때문이다.
+    for metric in UNSCORED_METRICS:
+        checks[metric] = None
+        detail.pop(metric, None)
+    passed = all(checks.get(m) for m in SCORED_METRICS)
+    return Score(checks=checks, passed=passed, detail=detail)
 
 
 def _finish(run_id: uuid.UUID, explanation: Explanation | None, score: Score | None,

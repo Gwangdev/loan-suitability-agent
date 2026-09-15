@@ -215,9 +215,9 @@ curl http://localhost:8000/api/v1/parsing-preview \
 | `explanation_text` | string 또는 null | Eval을 통과해 저장한 안내문 |
 | `eval_result` | object 또는 null | 아래 평가 표현 |
 
-Eval 표현은 `parse_accuracy`, `verdict_consistency`, `disclaimer_present`, `recommendation_consistency`, `numeric_grounding`, `conditional_language`, `passed` 불리언과 `detail` 객체다.
+Eval 표현은 `parse_accuracy`(불리언 또는 null), `verdict_consistency`, `disclaimer_present`, `recommendation_consistency`, `numeric_grounding`, `conditional_language`, `passed` 불리언과 `detail` 객체다.
 
-**채점 결과:** 동기 POST 응답도 저장된 Eval을 함께 반환하며, 같은 실행을 실행 이력 GET이나 심사 상세 GET으로 읽은 값과 같다. 키 없이 만든 PENDING 실행은 아직 채점 전이라 `eval_result=null`이다. 또한 설명 실행 경로의 `parse_accuracy=true`는 독립 파싱 측정치가 아니다. [데이터 흐름](데이터_흐름.md#저장-여부와-실패-결과)의 적용 범위를 참고한다.
+**채점 결과:** 동기 POST 응답도 저장된 Eval을 함께 반환하며, 같은 실행을 실행 이력 GET이나 심사 상세 GET으로 읽은 값과 같다. 키 없이 만든 PENDING 실행은 아직 채점 전이라 `eval_result=null`이다. 설명 실행은 파싱을 하지 않으므로 `parse_accuracy`는 채점 대상이 아니라 `null`이고, `passed`는 나머지 다섯 지표로 정해진다. 파싱 미리보기의 `parse_accuracy: null`(비교할 LLM 후보 없음)과 같은 뜻이며, 화면은 `false`인 지표만 미달로 표시한다. [데이터 흐름](데이터_흐름.md#저장-여부와-실패-결과)의 적용 범위를 참고한다.
 
 클라이언트는 HTTP 코드 다음에 업무 상태를 확인한다.
 

@@ -126,6 +126,28 @@ def test_withheld_message_names_failed_metrics_in_korean_without_the_overall_fla
     assert "recommendation_consistency" not in message and "numeric_grounding" not in message
 
 
+def test_withheld_message_does_not_count_an_unscored_metric_as_failed():
+    """채점하지 않은 지표(null)는 미달이 아니다. 설명 실행의 파싱정확도가 그렇다."""
+    payload = {
+        "status": "REVIEW_REQUIRED",
+        "eval_result": {
+            "parse_accuracy": None,
+            "verdict_consistency": True,
+            "disclaimer_present": True,
+            "recommendation_consistency": True,
+            "numeric_grounding": False,
+            "conditional_language": True,
+            "passed": False,
+            "detail": {"수치근거": "사유"},
+        },
+    }
+
+    message = app._withheld_message(payload)
+
+    assert "수치근거" in message
+    assert "파싱정확도" not in message
+
+
 def _status_error(code, headers=None):
     import httpx
 

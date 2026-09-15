@@ -179,6 +179,38 @@ def test_visitor_key_response_carries_the_stored_eval_like_the_history_does(api_
     assert body["eval_result"] == same_run["eval_result"]
 
 
+def test_a_stored_explanation_score_reports_parse_accuracy_as_not_scored(api_db, monkeypatch):
+    """설명 실행은 파싱을 하지 않으므로 응답의 파싱정확도는 통과가 아니라 null이어야 한다.
+
+    채점기는 대역으로 바꾸지 않는다. 값을 정하는 것이 채점기이고, 저장과 직렬화를 거쳐 응답까지
+    그 값이 그대로 오는지가 확인 대상이다.
+    """
+    from loan_agent import worker
+    from tests.test_eval import GOOD_ADVICE
+
+    monkeypatch.setattr(
+        worker,
+        "generate_explanation",
+        lambda *_args, **_kwargs: worker.Explanation(
+            text=GOOD_ADVICE, model_name="test-model", prompt_version="test-prompt",
+            input_tokens=1, output_tokens=1,
+        ),
+    )
+    created = _assessment(api_db)
+
+    response = client.post(
+        f"/api/v1/assessments/{created['assessment_id']}/explanation-runs",
+        headers={"X-OpenAI-API-Key": "visitor-test-key"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "COMPLETED"
+    assert body["eval_result"]["parse_accuracy"] is None
+    assert "파싱정확도" not in body["eval_result"]["detail"]
+    assert body["eval_result"]["passed"] is True
+
+
 def test_visitor_key_rejects_a_fresh_running_run(api_db):
     created = _assessment(api_db)
     with api_db.begin() as conn:
