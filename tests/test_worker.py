@@ -37,7 +37,7 @@ class _StubSession:
         return False
 
     def get(self, _model, _pk):
-        return SimpleNamespace(id=uuid.uuid4(), assessment_id=uuid.uuid4())
+        return SimpleNamespace(id=uuid.uuid4(), assessment_id=uuid.uuid4(), started_at=None)
 
     def expunge(self, _obj):
         pass
@@ -282,6 +282,101 @@ def test_fresh_running_is_left_alone(api_db):
         assert session.get(models.ExplanationRun, run_id).status == "RUNNING"
 
 
+def test_a_late_executor_does_not_overwrite_a_run_that_was_reclaimed_and_finished(api_db, monkeypatch):
+    """상한을 넘겨 되돌려진 실행을 다른 실행자가 끝냈으면, 늦게 끝난 첫 실행자는 결과를 덮어쓰지 않는다.
+
+    `reclaim_stale`은 죽은 워커의 작업을 살리려고 상한을 넘긴 RUNNING을 PENDING으로 되돌린다. 그런데 첫
+    실행자가 죽은 것이 아니라 느렸을 뿐이면, 두 번째 실행자가 그 행을 집어 완료로 기록한 뒤 첫 실행자가
+    뒤늦게 결과를 쓴다. 결과 기록이 행이 아직 자기가 집은 상태인지 확인하지 않으면 완료된 실행과 심사가
+    실패로 덮인다. 「한 작업은 한 번만 실행된다」는 집는 경로에만 성립하고 기록 경로에는 없었다.
+    """
+    from loan_agent import worker
+
+    with _session(api_db) as session:
+        case, run = _pending_case(session)
+        session.commit()
+        case_id, run_id = case.id, run.id
+
+    finished = worker.Explanation(
+        text="검토 결과 승인 가능한 것으로 판단됩니다(데모 기준).", model_name="m",
+        prompt_version="v1", input_tokens=1, output_tokens=1,
+    )
+    calls = []
+
+    def _slow_first_then_fast(_case):
+        calls.append(1)
+        if len(calls) > 1:
+            return finished
+        # 첫 실행자가 응답을 기다리는 사이 상한이 지나 행이 되돌려지고, 두 번째 실행자가 끝낸다.
+        stale = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+            seconds=worker.RUN_TIMEOUT_SECONDS + 60
+        )
+        with _session(api_db) as session:
+            session.get(models.ExplanationRun, run_id).started_at = stale
+            session.commit()
+        assert worker.reclaim_stale() == 1
+        assert worker.run_once() is True
+        raise RuntimeError("provider answered after the run was reclaimed")
+
+    monkeypatch.setattr(worker, "generate_explanation", _slow_first_then_fast)
+    monkeypatch.setattr(worker, "score_explanation", lambda *_: worker.Score(
+        checks={m: True for m in worker.EVAL_METRICS}, passed=True, detail={},
+    ))
+
+    assert worker.run_once() is True
+
+    with _session(api_db) as session:
+        final = session.get(models.ExplanationRun, run_id)
+        assert final.status == "COMPLETED"
+        assert final.error_code is None
+        assert final.explanation_text
+        case = session.get(models.AssessmentCase, case_id)
+        assert case.status == "COMPLETED"
+        assert case.current_explanation_run_id == run_id
+
+
+def test_a_visitor_whose_result_was_discarded_gets_a_conflict_not_a_success(api_db, monkeypatch):
+    """동기 방문자 경로에서 결과가 버려지면 성공으로 돌려주지 않고 충돌로 올린다.
+
+    결과 기록이 행을 더는 보유하지 않은 실행자의 결과를 버리게 된 뒤에도, 버렸다는 사실이 호출자에게
+    전달되지 않았다. 워커 경로는 기록할 사람이 없으니 버리고 끝나면 되지만, 방문자는 응답을 기다린다.
+    상한을 넘기는 사이 같은 심사에 대한 다른 요청이 행을 다시 집으면, 첫 요청은 남이 실행 중인 행을
+    200으로 받아 화면이 실패 안내를 띄웠다. 형제 경로가 이미 쓰는 충돌(409)로 알려야 한다.
+    """
+    from loan_agent import worker
+
+    with _session(api_db) as session:
+        case, run = _pending_case(session)
+        session.commit()
+        case_id, run_id = case.id, run.id
+
+    def _overrun_while_another_request_reclaims(_case, api_key=None):
+        stale = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+            seconds=worker.RUN_TIMEOUT_SECONDS + 60
+        )
+        with _session(api_db) as session:
+            session.get(models.ExplanationRun, run_id).started_at = stale
+            session.commit()
+        assert worker.claim_for_visitor(case_id) == run_id
+        return worker.Explanation(
+            text="검토 결과 승인 가능한 것으로 판단됩니다(데모 기준).", model_name="m",
+            prompt_version="v1", input_tokens=1, output_tokens=1,
+        )
+
+    monkeypatch.setattr(worker, "generate_explanation", _overrun_while_another_request_reclaims)
+    monkeypatch.setattr(worker, "score_explanation", lambda *_: worker.Score(
+        checks={m: True for m in worker.EVAL_METRICS}, passed=True, detail={},
+    ))
+
+    with pytest.raises(worker.ExplanationRunConflict):
+        worker.run_for_visitor(case_id, "sk-visitor")
+
+    with _session(api_db) as session:
+        held = session.get(models.ExplanationRun, run_id)
+        assert held.status == "RUNNING"
+        assert held.explanation_text is None
+
+
 def test_provider_timeout_on_the_worker_path_does_not_crash_the_loop(monkeypatch):
     """워커 경로의 타임아웃은 행에 기록되고 조용히 끝나야 한다.
 
@@ -296,7 +391,7 @@ def test_provider_timeout_on_the_worker_path_does_not_crash_the_loop(monkeypatch
     monkeypatch.setattr(worker, "generate_explanation",
                         lambda *_a, **_k: (_ for _ in ()).throw(TimeoutError("provider")))
     monkeypatch.setattr(worker, "_finish",
-                        lambda run_id, exp, score, code, ms: finished.append(code))
+                        lambda run_id, exp, score, code, ms, *, claimed_at: finished.append(code))
     monkeypatch.setattr(worker, "Session", _StubSession)
     monkeypatch.setattr(worker.db_engine, "get_engine", lambda: None)
 
@@ -311,7 +406,7 @@ def test_provider_timeout_on_the_visitor_path_still_raises(monkeypatch):
 
     monkeypatch.setattr(worker, "generate_explanation",
                         lambda *_a, **_k: (_ for _ in ()).throw(TimeoutError("provider")))
-    monkeypatch.setattr(worker, "_finish", lambda *_a, **_k: None)
+    monkeypatch.setattr(worker, "_finish", lambda *_a, **_k: True)
     monkeypatch.setattr(worker, "Session", _StubSession)
     monkeypatch.setattr(worker.db_engine, "get_engine", lambda: None)
 
