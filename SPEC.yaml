@@ -196,6 +196,18 @@ code_roots:
 # so the column is NULL on FAILED and REVIEW_REQUIRED runs. The field exposes
 # what was published, never what was withheld.
 #
+# eval_result.parse_accuracy may be null (revised 2026-09-15, ADR-036). The
+# explanation path — the worker and the visitor sync path share one scorer —
+# makes a single guidance call from stored structured values and parses nothing,
+# so 파싱정확도 has no parser output to score there. It is stored as null with no
+# detail entry, instead of the true it used to be forced to. passed is the
+# conjunction of the five metrics that path lists as applicable, named
+# explicitly — never "the non-null ones", or a metric that returned None by
+# mistake would drop out of the publication gate (ADR-007). passed is identical
+# for every input: forcing true already made it the same five-way conjunction.
+# Same meaning as parsing-preview's null: nothing to compare. Field set and
+# endpoints unchanged; only the value domain widens to boolean or null.
+#
 # Explanation is one LLM call (revised 2026-08-29, ADR-030). The pipeline used to
 # make five sequential round trips, two of them re-deciding an assessment that
 # POST /assessments had already computed and stored. The decision, DSR and
@@ -271,6 +283,12 @@ exclude:
 #       transaction (ADR-003 outbox), so a 409 on "a run already exists"
 #       would fire on every visitor request. ADR-019's 409 is for a RUNNING
 #       row only.
+#
+#       Network (revised 2026-09-15, ADR-035). The worker joins `backend` to
+#       reach the database and `egress`, a non-internal network no other
+#       service joins, to reach the model provider. `backend` is internal, so a
+#       worker on it alone failed name resolution and every server-key run
+#       ended PROVIDER_ERROR. `postgres` stays on `backend` alone (ADR-011).
 #
 #       Not deployed to the public host (ADR-031 §31.3): the worker has no key
 #       there and would race the visitor for PENDING rows.
