@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 import pytest
 
-from loan_agent import core, llm
+from loan_agent import llm, parser, screening
 from loan_agent.api import app
 
 client = TestClient(app)
@@ -11,16 +11,16 @@ client = TestClient(app)
 
 def test_parse_keyword_before_number():
     # '월급 700만원' — 키워드 → 숫자 방향
-    assert core.parse_korean_amount("월급 700만원", ["월급", "월소득"]) == 7000000
+    assert parser.parse_korean_amount("월급 700만원", ["월급", "월소득"]) == 7000000
 
 
 def test_parse_number_before_keyword():
     # '3000만원 대출받고' — 숫자 → 키워드 방향
-    assert core.parse_korean_amount("3000만원 대출받고 싶어요", ["대출받", "희망"]) == 30000000
+    assert parser.parse_korean_amount("3000만원 대출받고 싶어요", ["대출받", "희망"]) == 30000000
 
 
 def test_rule_based_parse_full_case():
-    parsed = core.rule_based_parse(
+    parsed = parser.rule_based_parse(
         "월급 700만원 받는 정규직이고 부채는 없습니다. 신용등급 1등급이고 3000만원 대출받고 싶어요."
     )
     assert parsed["월소득"] == 7000000
@@ -31,8 +31,8 @@ def test_rule_based_parse_full_case():
 
 
 def test_collateral_detection():
-    with_col = core.rule_based_parse("집을 담보로 제공할 수 있습니다.")
-    without_col = core.rule_based_parse("담보는 없어요.")
+    with_col = parser.rule_based_parse("집을 담보로 제공할 수 있습니다.")
+    without_col = parser.rule_based_parse("담보는 없어요.")
     assert with_col["담보보유"] is True
     assert without_col["담보보유"] is False
 
@@ -72,7 +72,7 @@ def test_parsing_preview_surfaces_independent_candidates_and_disagreements(monke
 
 
 def test_parsing_preview_marks_agreeing_candidates_as_parse_accurate(monkeypatch):
-    rule = core.rule_based_parse("월소득 300만원입니다.")
+    rule = parser.rule_based_parse("월소득 300만원입니다.")
     monkeypatch.setattr(llm, "parse_with_llm", lambda *_: rule)
 
     response = client.post(
@@ -84,6 +84,35 @@ def test_parsing_preview_marks_agreeing_candidates_as_parse_accurate(monkeypatch
     assert response.status_code == 200
     assert response.json()["mismatched_fields"] == []
     assert response.json()["parse_accuracy"] is True
+
+
+def test_parsing_preview_degrades_when_the_llm_parser_fails(monkeypatch, caplog):
+    """키가 있어도 LLM 파서가 실패하면 저하로 처리한다.
+
+    예전에는 제공자 오류와 「JSON 아님」이 그대로 올라가 500이 되고, 처리되지 않은 예외 처리기가
+    예외 메시지를 기록했다. 같은 성격의 실패를 설명 실행 경로는 정규화된 코드만 남기고 상태로
+    처리하는데, 이 경로만 달랐다. 응답 형상은 그대로이고 한쪽 파서만 돈 것으로 표시한다.
+    """
+    def _provider_failure(*_args, **_kwargs):
+        raise ConnectionError("Illegal header value b'Bearer sk-proj-LEAKCHECK0123456789'")
+
+    monkeypatch.setattr(llm, "parse_with_llm", _provider_failure)
+
+    with caplog.at_level("WARNING"):
+        response = client.post(
+            "/api/v1/parsing-preview",
+            json={"text": "월소득 300만원입니다."},
+            headers={"X-OpenAI-API-Key": "test-visitor-key"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["rule_candidate"]["월소득"] == 3_000_000
+    assert body["llm_candidate"] is None
+    assert body["parse_accuracy"] is None
+    assert body["degraded"] is True
+    assert "LEAKCHECK" not in caplog.text
+    assert "Illegal header value" not in caplog.text
 
 
 def test_parsing_preview_degrades_to_rule_candidate_without_a_key(monkeypatch):
@@ -104,7 +133,7 @@ def test_parsing_preview_degrades_to_rule_candidate_without_a_key(monkeypatch):
 # ── 필수필드 검증 ──────────────────
 def test_missing_required_fields_none_when_complete():
     parsed = {"월소득": 3000000, "신용등급": 3, "희망금액": 20000000, "부채": 0}
-    assert core.missing_required_fields(parsed) == []
+    assert screening.missing_required_fields(parsed) == []
 
 
 def test_debt_zero_passes_but_absent_debt_is_missing():
@@ -115,34 +144,34 @@ def test_debt_zero_passes_but_absent_debt_is_missing():
     못 읽은 부채가 "빚 없음"으로 심사에 들어가 판정이 승인 쪽으로 기운다.
     """
     complete = {"월소득": 3_000_000, "신용등급": 3, "희망금액": 20_000_000, "부채": 0}
-    assert core.missing_required_fields(complete) == []
-    assert core.missing_required_fields({**complete, "부채": None}) == ["부채"]
+    assert screening.missing_required_fields(complete) == []
+    assert screening.missing_required_fields({**complete, "부채": None}) == ["부채"]
 
 
 def test_unparsable_debt_is_absent_not_zero():
     """한글 수사처럼 파서가 못 읽는 표기가 남아도 안전한 쪽으로 실패해야 한다."""
-    parsed = core.rule_based_parse("월급 350만원 정규직이고 부채 오천만원 있어요. 신용등급 3등급, 2000만원 대출받고 싶어요.")
+    parsed = parser.rule_based_parse("월급 350만원 정규직이고 부채 오천만원 있어요. 신용등급 3등급, 2000만원 대출받고 싶어요.")
     assert parsed["부채"] is None
-    assert "부채" in core.missing_required_fields(parsed)
+    assert "부채" in screening.missing_required_fields(parsed)
 
 
 def test_stated_absence_of_debt_is_zero_not_absent():
     """「부채 없음」은 읽어 낸 값이므로 미입력으로 떨어지지 않는다."""
-    parsed = core.rule_based_parse("월급 700만원 받는 정규직이고 부채는 없습니다. 신용등급 1등급이고 3000만원 대출받고 싶어요.")
+    parsed = parser.rule_based_parse("월급 700만원 받는 정규직이고 부채는 없습니다. 신용등급 1등급이고 3000만원 대출받고 싶어요.")
     assert parsed["부채"] == 0
-    assert core.missing_required_fields(parsed) == []
+    assert screening.missing_required_fields(parsed) == []
 
 
 def test_missing_required_fields_flags_missing_income():
     parsed = {"월소득": 0, "신용등급": 3, "희망금액": 20000000}
-    missing = core.missing_required_fields(parsed)
+    missing = screening.missing_required_fields(parsed)
     assert "월 소득" in missing
 
 
 def test_missing_required_fields_flags_sentinel_grade():
     # 신용등급 99 = 미입력 sentinel
     parsed = {"월소득": 3000000, "신용등급": 99, "희망금액": 20000000}
-    assert "신용등급" in core.missing_required_fields(parsed)
+    assert "신용등급" in screening.missing_required_fields(parsed)
 
 
 @pytest.mark.parametrize("text,expected,note", [
@@ -165,7 +194,7 @@ def test_amount_unit_is_inferred_from_notation(text, expected, note):
     콤마의 유무가 아니라 개수가 자리수를 말해 준다. 하나면 만원 표기에서 흔한
     자리수이고, 둘 이상이면 백만 이상이라 만원으로 읽을 수 없다.
     """
-    assert core.parse_korean_amount(text, ["월소득", "월급", "월"]) == expected, note
+    assert parser.parse_korean_amount(text, ["월소득", "월급", "월"]) == expected, note
 
 
 @pytest.mark.parametrize("text,expected,note", [
@@ -188,7 +217,7 @@ def test_korean_magnitude_units_compose(text, expected, note):
     단위와 작은 단위를 이어 쓰는 것이 한국어 금액 표기의 기본형이기 때문이다. 단위
     하나를 고르는 대신 조각을 이어 읽어 더해야 표기 전체가 맞는다.
     """
-    assert core.parse_korean_amount(text, ["희망", "대출받", "빌리", "받고"]) == expected, note
+    assert parser.parse_korean_amount(text, ["희망", "대출받", "빌리", "받고"]) == expected, note
 
 
 def test_unitless_numbers_do_not_merge_across_fields():
@@ -197,7 +226,7 @@ def test_unitless_numbers_do_not_merge_across_fields():
     "월 300 부채 500"은 한 금액의 두 조각이 아니라 서로 다른 항목이다. 이어 붙이면
     소득에 부채가 합쳐져 상환능력이 과대평가된다 — 승인 쪽으로 기우는 방향이다.
     """
-    parsed = core.rule_based_parse("월 300 부채 500 신용등급 4등급, 2000만원 희망")
+    parsed = parser.rule_based_parse("월 300 부채 500 신용등급 4등급, 2000만원 희망")
     assert parsed["월소득"] == 3_000_000
     assert parsed["부채"] == 5_000_000
 
@@ -208,8 +237,8 @@ def test_zero_amount_is_a_parsed_value_not_a_miss():
     구분하지 않으면 "부채 0원"이 실패로 떨어지고, 키워드 주변을 다시 훑는 과정에서
     뒤쪽의 무관한 숫자가 부채로 붙는다.
     """
-    assert core.parse_korean_amount("부채 0원", ["부채"]) == 0
-    assert core.rule_based_parse("월급 300만원, 부채 0원, 신용등급 3등급")["부채"] == 0
+    assert parser.parse_korean_amount("부채 0원", ["부채"]) == 0
+    assert parser.rule_based_parse("월급 300만원, 부채 0원, 신용등급 3등급")["부채"] == 0
 
 
 def test_single_comma_six_digits_still_reads_as_man_won():
@@ -219,7 +248,7 @@ def test_single_comma_six_digits_still_reads_as_man_won():
     반대편이 틀리므로 파서는 만원 관행을 따르고, 확정은 화면에서 사람이 한다.
     이 테스트는 한계를 고정해 두어, 값이 조용히 바뀌면 드러나게 한다.
     """
-    assert core.parse_korean_amount("월소득 500,000", ["월소득"]) == 5_000_000_000
+    assert parser.parse_korean_amount("월소득 500,000", ["월소득"]) == 5_000_000_000
 
 
 def test_a_trailing_punctuation_comma_is_not_read_as_a_won_unit_signal():
@@ -229,4 +258,4 @@ def test_a_trailing_punctuation_comma_is_not_read_as_a_won_unit_signal():
     분기가 3원을 돌려줬다. 표기 규칙을 콤마 개수와 금액 범위로 바꾼 뒤로는 콤마 뒤에 자리수가
     없는 이 경우가 만원 관행으로 읽힌다. 규칙이 다시 콤마 유무로 돌아가지 않게 결과를 고정한다.
     """
-    assert core._to_won("3,", None) == core._to_won("3", None) == 30_000
+    assert parser._to_won("3,", None) == parser._to_won("3", None) == 30_000
