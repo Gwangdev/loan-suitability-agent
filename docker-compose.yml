@@ -122,8 +122,12 @@ services:
       - /tmp:uid=10001,gid=10001,mode=1777
     # 호스트에 포트를 열지 않는다. 들어오는 요청을 받지 않고 DB만 폴링하므로
     # 열어 둘 이유가 없고, 열면 공격 표면만 늘어난다.
+    # 네트워크는 둘이다. backend는 DB에 닿는 길이고 내부 전용이라 이름 해석조차 되지 않아,
+    # 여기에만 두면 서버 키로 부르는 모델 호출이 연결 단계에서 실패해 제공자 오류로 기록된다.
+    # 외부로 나가는 길은 egress로 따로 준다. 들어오는 경로인 frontend에 붙이면 화면까지 닿게 된다.
     networks:
       - backend
+      - egress
     depends_on:
       postgres:
         condition: service_healthy
@@ -173,6 +177,8 @@ networks:
   frontend:
   backend:
     internal: true
+  # 워커 전용 외부 통신 네트워크. 다른 서비스를 붙이면 그 서비스에도 이유 없는 외부 경로가 생긴다.
+  egress:
 
 volumes:
   postgres_data:
