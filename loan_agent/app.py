@@ -41,7 +41,7 @@ import streamlit as st
 # 세션 메모리에서 요청 헤더로 넘기고 서버 키를 쓰지 않으므로 블록을 지웠다.
 # tests/test_no_environ_writes.py가 같은 쓰기의 재유입을 막는다.
 
-from loan_agent import core, demo as demo_cases, parser, screening  # noqa: E402  (sys.path 보정 이후에 import)
+from loan_agent import core, demo as demo_data, parser, screening  # noqa: E402  (sys.path 보정 이후에 import)
 
 # Compose에서는 서비스 이름 app으로, 로컬에서는 같은 포트의 Uvicorn으로 접속한다. 화면이
 # 판정을 직접 계산하지 않고 이 접속점만 알게 해야 UI → API → DB 경계가 실제 요청 경로가 된다.
@@ -494,7 +494,7 @@ def _reset_input():
 # 사전 녹화된 결과 로더(캐시) — 방문자가 키·토큰 없이 결과를 열람.
 @st.cache_data(show_spinner=False)
 def _demo_fixtures():
-    return demo_cases.load_demo_fixtures()
+    return demo_data.load_demo_fixtures()
 
 
 def _load_demo(index: int):
@@ -618,12 +618,12 @@ def main():
         st.divider()
 
         st.caption("예시 케이스 (클릭 시 입력창에 채워짐)")
-        for tc in demo_cases.TEST_CASES:
+        for tc in demo_data.TEST_CASES:
             st.button(
                 tc["name"], key=f"tc_{tc['name']}", width="stretch",
                 on_click=_fill_input, args=(tc["input"],),
             )
-        for tc in demo_cases.EDGE_CASES:
+        for tc in demo_data.EDGE_CASES:
             st.button(
                 tc["name"], key=f"ec_{tc['name']}", width="stretch",
                 on_click=_fill_input, args=(tc["input"],),
