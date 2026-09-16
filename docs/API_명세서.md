@@ -184,7 +184,7 @@ curl http://localhost:8000/api/v1/parsing-preview \
 | `missing_fields` | string array | 규칙 후보 기준 필수 입력 누락 이름 |
 | `degraded` | boolean | LLM 후보가 없으면 true |
 
-두 후보는 자동 병합하지 않는다. 후보의 키는 한글이고 심사 요청의 키는 영문이므로 호출자는 §3의 필드로 옮기고 값을 확인해야 한다. LLM 후보는 현재 JSON 객체 여부만 확인하며, 응답을 검증된 `AssessmentRequest`로 간주하지 않는다. **키가 없는 경우의 정상 축소 경로와, 키가 있는데 제공자 호출·JSON 파싱이 실패하는 경우는 다르다.** 후자는 현재 자동 폴백 없이 공통 500 처리로 이어질 수 있다. 근거: [parsing](../loan_agent/api/parsing.py), [parse_with_llm](../loan_agent/llm.py), [후보 평가](../loan_agent/eval.py).
+두 후보는 자동 병합하지 않는다. 후보의 키는 한글이고 심사 요청의 키는 영문이므로 호출자는 §3의 필드로 옮기고 값을 확인해야 한다. LLM 후보는 현재 JSON 객체 여부만 확인하며, 응답을 검증된 `AssessmentRequest`로 간주하지 않는다. **키가 없는 경우와, 키가 있는데 제공자 호출·JSON 파싱이 실패하는 경우는 응답에서 구분되지 않는다.** 둘 다 `llm_candidate: null`·`degraded: true`로 200을 돌려준다. 이 경로의 계약은 「구조화 후보가 돌아온다」이고 규칙 후보만으로 충족되므로, 두 번째 파서의 실패는 요청의 실패가 아니라 저하다. 실패 사유는 정규화된 한 줄로 서버 로그에만 남는다. 근거: [parsing](../loan_agent/api/parsing.py), [parse_with_llm](../loan_agent/llm.py), [후보 평가](../loan_agent/eval.py).
 
 ## 6. 설명 생성·재시도·이력
 
