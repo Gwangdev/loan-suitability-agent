@@ -59,6 +59,69 @@ def w(d, rel, text=""):
     io.open(p, "w", encoding="utf-8").write(text)
 
 
+def b_alias_shadow(d):
+    """모듈 별칭을 같은 함수의 지역 변수가 가리고, 그보다 앞선 줄에서 모듈로도 읽는다(S5)."""
+    w(d, "app/view.py",
+      "from pkg import demo\n"
+      "\n"
+      "def render(source):\n"
+      "    for item in demo.CASES:\n"
+      "        print(item)\n"
+      "    demo = source.get('cases', [])\n"
+      "    return demo\n")
+
+
+def b_alias_shadow_ok(d):
+    """반증: 먼저 대입한 뒤 쓰는 가림은 의도된 것이고, 다른 함수의 모듈 참조는 정상이다(S5 반증)."""
+    w(d, "app/view.py",
+      "from pkg import demo\n"
+      "\n"
+      "def render(source):\n"
+      "    demo = source.get('cases', [])\n"
+      "    return demo.count\n"
+      "\n"
+      "def listing():\n"
+      "    return demo.CASES\n")
+
+
+def b_infra_dep_completed_ok(d):
+    """반증: 종료 코드로 기다리는 의존은 상태 확인의 대상이 아니다(I3 반증)."""
+    w(d, "docker-compose.yml",
+      "services:\n"
+      "  api:\n"
+      "    image: myapp:1\n"
+      "    user: \"1000\"\n"
+      "    read_only: true\n"
+      "    depends_on:\n"
+      "      migrate:\n"
+      "        condition: service_completed_successfully\n"
+      "  migrate:\n"
+      "    image: myapp:1\n"
+      "    user: \"1000\"\n"
+      "    read_only: true\n"
+      "    healthcheck:\n"
+      "      disable: true\n")
+
+
+def b_infra_healthcheck_disabled(d):
+    """상태 확인을 끈 서비스를 상태 기준으로 기다리면 준비 상태는 보장되지 않는다(I3)."""
+    w(d, "docker-compose.yml",
+      "services:\n"
+      "  api:\n"
+      "    image: myapp:1\n"
+      "    user: \"1000\"\n"
+      "    read_only: true\n"
+      "    depends_on:\n"
+      "      cache:\n"
+      "        condition: service_healthy\n"
+      "  cache:\n"
+      "    image: myapp:1\n"
+      "    user: \"1000\"\n"
+      "    read_only: true\n"
+      "    healthcheck:\n"
+      "      disable: true\n")
+
+
 def git(d, *cmds):
     subprocess.run(["git", "init", "-q"], cwd=d)
     subprocess.run(["git", "config", "user.email", "t@e.st"], cwd=d)
@@ -1178,6 +1241,10 @@ CASES = [
     ("인프라 반증: 구성 없음",    b_infra_no_compose_ok,   (),   ("I1", "I2", "I3", "I5"), False),
     ("인프라: 정적 헬스체크",     b_health_static,         ("I3",),        (),               False),
     ("인프라 반증: 의존 확인 헬스체크", b_health_checks_dependency_ok, (), ("I3",),          False),
+    ("인프라: 상태 확인을 끈 대상",  b_infra_healthcheck_disabled, ("I3",),   (),               False),
+    ("인프라 반증: 종료 코드 대기", b_infra_dep_completed_ok, (),             ("I3",),          False),
+    ("설계: 모듈 별칭 가림",      b_alias_shadow,          ("S5",),        (),               True),
+    ("설계 반증: 의도된 가림",    b_alias_shadow_ok,       (),             ("S5",),          None),
     ("인프라: 비밀값 일반 비교",  b_secret_compare_plain,  ("I4",),        (),               False),
     ("인프라 반증: 상수 시간 비교", b_secret_compare_safe_ok, (),          ("I4",),          False),
     ("보안: 인용부호 없는 환경변수", b_secret_bare_env,     ("X1",),        (),               True),
@@ -1227,6 +1294,20 @@ try:
     if "2 feature group(s)" not in _out:
         _bad.append("\uadf8\ub8f9 \uc218 \ubd88\uc77c\uce58")
     results.append(("--changeset \uae30\ub2a5\ubcc4 \ubb36\uc74c", _bad, _out))
+finally:
+    shutil.rmtree(_d, ignore_errors=True)
+
+# \uc774 \ubaa9\ub85d\uc740 \uc0ac\ub78c\uc774 \ucee4\ubc0b\uc744 \ub098\ub204\ub294 \uc6d0\uc790\ub8cc\ub2e4. git \uae30\ubcf8\uac12\uc774 ASCII \ubc16 \uacbd\ub85c\ub97c 8\uc9c4\uc218\ub85c \uc774\uc2a4\ucf00\uc774\ud504\ud558\uba74
+# \ud30c\uc77c\uc744 \uc54c\uc544\ubcfc \uc218 \uc5c6\ub2e4. \uc2e4\uc81c \ud55c\uae00 \uacbd\ub85c\ub97c \ub123\uace0 \uadf8\ub300\ub85c \ub098\uc624\ub294\uc9c0 \ubcf8\ub2e4.
+_d = tempfile.mkdtemp(prefix="gate-t-")
+try:
+    w(_d, ".gitignore", "")
+    git(_d, "git add .gitignore", "git commit -q -m init")
+    w(_d, "docs/\uc124\uacc4\ubb38\uc11c.md", "x\n")
+    _out = subprocess.run([sys.executable, GATE, _d, "--changeset"],
+                          capture_output=True, text=True, timeout=120).stdout
+    _bad = [] if "docs/\uc124\uacc4\ubb38\uc11c.md" in _out else ["\ud55c\uae00 \uacbd\ub85c\uac00 8\uc9c4\uc218 \uc774\uc2a4\ucf00\uc774\ud504\ub85c \ub098\uc628\ub2e4"]
+    results.append(("--changeset \ud55c\uae00 \uacbd\ub85c", _bad, _out))
 finally:
     shutil.rmtree(_d, ignore_errors=True)
 

@@ -484,6 +484,57 @@ def _dead_names(decls, sources):
     return dead
 
 
+def _own_scope(function):
+    """이 함수 자신의 스코프에 속한 노드만 준다. 중첩 함수·클래스·컴프리헨션은 다른 스코프다."""
+    stack = list(function.body)
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef,
+                             ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            continue
+        stack.extend(ast.iter_child_nodes(node))
+
+
+def _alias_shadows(sources):
+    """모듈 별칭을 같은 함수의 지역 변수가 가리면서, 그 함수의 앞쪽에서 모듈로도 읽는 자리를 찾는다.
+
+    파이썬은 함수 안에 대입이 하나라도 있으면 그 이름을 함수 전체에서 지역으로 본다. 그래서 대입보다
+    앞선 줄의 모듈 참조가 실행 시점에 `UnboundLocalError`가 된다. 임포트·단위 테스트로는 드러나지
+    않고 그 경로를 실제로 타야 나타난다.
+
+    대입보다 앞서 읽는 자리만 센다. 지역으로 쓰려고 먼저 대입한 뒤 쓰는 것은 의도된 가림이고 오류가
+    아니기 때문이다. `global`·`nonlocal`로 선언한 이름은 지역이 아니므로 제외한다.
+    """
+    hits = []
+    for path, raw in sources.items():
+        try:
+            tree = ast.parse(raw)
+        except SyntaxError:
+            continue
+        aliases = set()
+        for node in tree.body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                aliases |= {a.asname or a.name.split(".")[0] for a in node.names}
+        if not aliases:
+            continue
+        for function in [n for n in ast.walk(tree)
+                         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+            bound, declared, reads = {}, set(), {}
+            for node in _own_scope(function):
+                if isinstance(node, (ast.Global, ast.Nonlocal)):
+                    declared |= set(node.names)
+                elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                    # 순회 순서는 소스 순서와 다르므로 가장 이른 줄을 남긴다.
+                    bound[node.id] = min(bound.get(node.id, node.lineno), node.lineno)
+                elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+                    reads[node.value.id] = min(reads.get(node.value.id, node.lineno), node.lineno)
+            for alias in sorted(aliases & set(bound) & set(reads) - declared):
+                if reads[alias] < bound[alias]:
+                    hits.append((alias, f"{os.path.relpath(path, ROOT)}:{reads[alias]}", function.name))
+    return hits
+
+
 def check_surface():
     """선언됐지만 아무도 호출하지 않는 공개 메서드를 센다.
 
@@ -544,6 +595,14 @@ def check_surface():
             add("WARN", "S2",
                 f"Python: {len(dead)} public functions never called — decide keep or delete",
                 "\n".join(f"    {n}()  ← {h}" for n, h in dead[:10]))
+
+        shadowed = _alias_shadows(src)
+        if shadowed:
+            add("BLOCK", "S5",
+                f"Python: {len(shadowed)} module alias(es) shadowed before use in the same function",
+                "\n".join(f"    {alias}  ← {where} ({fn}())" for alias, where, fn in shadowed[:10])
+                + "\n    함수 안의 대입 하나가 그 이름을 전부 지역으로 만든다. 같은 함수의 앞쪽에서\n"
+                  "    모듈로 읽는 자리는 실행 시점에 UnboundLocalError가 된다 — 임포트로는 드러나지 않는다")
 
 
 # ═══ 8. 명세 대조 — 공개 표면이 명세와 일치하는가 ═══════════════════════
@@ -1105,7 +1164,9 @@ def changeset_report():
         print("\n╭─ changeset\n│ not a git repository\n╰─\n")
         return 0
 
-    status = sh(["git", "status", "--porcelain=v1", "-uall"])
+    # 이 목록은 사람이 커밋을 나누는 원자료다. git의 기본값은 ASCII 밖 경로를 8진수로 이스케이프해
+    # 보여 주므로 한글·일본어 경로가 읽을 수 없는 문자열로 나온다. 조회 시점에 끈다.
+    status = sh(["git", "-c", "core.quotepath=false", "status", "--porcelain=v1", "-uall"])
     changed = []
     for ln in status.splitlines():
         if not ln.strip():
@@ -1589,8 +1650,19 @@ def check_infra_compose():
             if not re.search(r"^\s*user:", body, re.M) or \
                not re.search(r"^\s*read_only:\s*true\s*$", body, re.M):
                 unguarded.append(f"{rel} {name}")
-            for dep in REF_NAME.findall(fields.get("depends_on", "")):
-                if dep in svcs and "healthcheck" not in _children(svcs[dep]):
+            # 의존 선언은 목록형(`- name`)과 조건형(`name: condition: ...`) 둘 다 온다. 조건을 읽어야
+            # 판정이 맞는다 — 종료 코드로 기다리는 의존(`service_completed_successfully`)은 한 번
+            # 실행하고 끝나는 서비스를 가리키므로 상태 확인의 대상이 아니다. 또 상태 확인을 명시적으로
+            # 끈 서비스(`healthcheck: disable: true`)는 키가 있을 뿐 검사가 없는 것이다.
+            dep_blocks = _children(fields.get("depends_on", ""))
+            for dep in sorted(set(REF_NAME.findall(fields.get("depends_on", ""))) | set(dep_blocks)):
+                if dep not in svcs:
+                    continue
+                condition = re.search(r"condition:\s*(\S+)", dep_blocks.get(dep) or "")
+                if condition and condition.group(1) == "service_completed_successfully":
+                    continue
+                target = _children(svcs[dep]).get("healthcheck")
+                if target is None or re.search(r"^\s*disable:\s*true\s*$", target, re.M):
                     unready.append(f"{rel} {name} → {dep}")
     if exposed:
         add(I_LEVEL, "I1", f"{len(exposed)} data-tier service(s) publish a host port",
